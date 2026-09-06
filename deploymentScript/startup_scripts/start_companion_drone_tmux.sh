@@ -597,7 +597,13 @@ fi
 
 start_gps_combo
 
-SCHURVINS_ROOT="${SCHURVINS_ROOT:-$(cd "${CATSWARM_ROOT}/.." && pwd)/SchurVINS}"
+if [ -z "${SCHURVINS_ROOT:-}" ]; then
+    if [ -d "${CATSWARM_ROOT}/SchurVINS" ]; then
+        SCHURVINS_ROOT="${CATSWARM_ROOT}/SchurVINS"
+    else
+        SCHURVINS_ROOT="$(cd "${CATSWARM_ROOT}/.." && pwd)/SchurVINS"
+    fi
+fi
 if ! companion_vio_start_in_tmux "${TMUX_SESSION}" "${DRONE_ID}" "${COMPANION_PYTHON:-${PYTHON}}" "${SCHURVINS_ROOT}"; then
     echo "WARNING: VIO window failed to start — continuing." >&2
 fi

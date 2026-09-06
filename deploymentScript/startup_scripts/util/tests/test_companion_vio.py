@@ -1,9 +1,11 @@
+import tempfile
 import unittest
 from pathlib import Path
 
 from companion_vio_spec import (
     default_calib_path,
     default_options_path,
+    default_schurvins_root,
     vio_skip_must_not_fail_companion,
     vio_window_name,
 )
@@ -39,3 +41,23 @@ class TestCompanionVio(unittest.TestCase):
     def test_kill_companion_pkills_feeder(self):
         text = (STARTUP / "start_companion_drone_tmux.sh").read_text()
         self.assertIn('pkill -TERM -f "svo_pi.feeder"', text)
+
+    def test_default_schurvins_root_prefers_nested_when_present(self):
+        with tempfile.TemporaryDirectory() as td:
+            cats = Path(td) / "CatSwarm"
+            nested = cats / "SchurVINS"
+            nested.mkdir(parents=True)
+            self.assertEqual(default_schurvins_root(str(cats)), str(nested.resolve()))
+
+    def test_default_schurvins_root_uses_sibling_when_nested_missing(self):
+        with tempfile.TemporaryDirectory() as td:
+            gi = Path(td) / "CatSwarm" / "general_infrastructure"
+            gi.mkdir(parents=True)
+            sibling = Path(td) / "CatSwarm" / "SchurVINS"
+            sibling.mkdir()
+            self.assertEqual(default_schurvins_root(str(gi)), str(sibling.resolve()))
+
+    def test_start_script_prefers_nested_schurvins_then_sibling(self):
+        text = (STARTUP / "start_companion_drone_tmux.sh").read_text()
+        self.assertIn('[ -d "${CATSWARM_ROOT}/SchurVINS" ]', text)
+        self.assertIn('$(cd "${CATSWARM_ROOT}/.." && pwd)/SchurVINS', text)

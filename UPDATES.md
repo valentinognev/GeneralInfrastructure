@@ -2,6 +2,10 @@
 
 This file documents the development progress and changes made to the `CatSwarm/general_infrastructure` project by the AI agent.
 
+## [2026-09-06] SCHURVINS_ROOT prefers CatSwarm/SchurVINS
+- Default is `${CATSWARM_ROOT}/SchurVINS` when that directory exists, else `$(cd "${CATSWARM_ROOT}/.." && pwd)/SchurVINS`. Covers Pi `~/RL/SchurVINS` and laptop `CatSwarm/SchurVINS` (GI as CATSWARM_ROOT). Env `SCHURVINS_ROOT` still wins.
+- Spec helper `default_schurvins_root` in `companion_vio_spec.py`; tests in `test_companion_vio.py`.
+
 ## [2026-09-06] Companion VIO: pkill feeder; pass IMX500 calib/options
 - `--kill` also pkills `svo_pi.feeder` (with supervisor and `/svo_pi/svo_pi`) so a moved-window feeder cannot keep the Unix socket or camera.
 - `vio_N` supervisor launch passes `--calib=${SCHURVINS}/svo_ros/param/calib/imx500_320.yaml` and `--options=.../vio_mono.yaml`.
