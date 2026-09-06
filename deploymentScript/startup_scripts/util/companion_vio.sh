@@ -16,6 +16,6 @@ companion_vio_start_in_tmux() {
   local py_root="${schurvins}/svo_pi/python"
   tmux kill-window -t "${session}:${window}" 2>/dev/null || true
   tmux new-window -t "${session}" -n "${window}" \
-    "export PYTHONPATH='${py_root}'; ${python} -m svo_pi.supervisor --drone-id=${drone_id} --svo-pi='${schurvins}/svo_pi/svo_pi'; echo; echo '[vio window parked]'; exec sleep infinity"
+    "export PYTHONPATH='${py_root}'; ${python} -m svo_pi.supervisor --drone-id=${drone_id} --svo-pi='${schurvins}/svo_pi/svo_pi' --calib=${schurvins}/svo_ros/param/calib/imx500_320.yaml --options=${schurvins}/svo_ros/param/vio_mono.yaml; echo; echo '[vio window parked]'; exec sleep infinity"
   return 0
 }

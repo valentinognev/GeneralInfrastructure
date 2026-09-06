@@ -271,6 +271,7 @@ kill_companion() {
     echo "Stopping companion stack (session ${TMUX_SESSION})…" >&2
     pkill -TERM -f "svo_pi.supervisor" 2>/dev/null || true
     pkill -TERM -f "/svo_pi/svo_pi" 2>/dev/null || true
+    pkill -TERM -f "svo_pi.feeder" 2>/dev/null || true
     pkill -TERM -f "hardware_adapter/python/ZMQ_to_comm.py" 2>/dev/null || true
     pkill -TERM -f "bin/ZMQ_to_comm_c" 2>/dev/null || true
     pkill -TERM -f "bin/comm_to_ZMQ_c" 2>/dev/null || true
