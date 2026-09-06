@@ -14,14 +14,13 @@ import sys
 import time
 from typing import Iterable, List, Sequence, Tuple
 
-# msgid, default_hz placeholder unused in tuple name, display name
-# Rates filled by stream_interval_requests(hz=...).
+# msgid, per-stream default hz, display name.
+# stream_interval_requests(hz=None) uses each tuple's own hz.
 QGC_DEFAULT_STREAMS: Sequence[Tuple[int, int, str]] = (
-    (105, 50, "HIGHRES_IMU"),
+    (105, 100, "HIGHRES_IMU"),
     (106, 50, "OPTICAL_FLOW_RAD"),
 )
 
-DEFAULT_STREAM_HZ = 50
 DEFAULT_MAVLINK = "tcp:127.0.0.1:5760"
 DEFAULT_TARGET_SYSTEM = 1
 DEFAULT_TARGET_COMPONENT = 1
@@ -36,10 +35,15 @@ def interval_us_for_hz(hz: float) -> int:
 
 
 def stream_interval_requests(
-    hz: float = DEFAULT_STREAM_HZ,
+    hz: float | None = None,
     streams: Sequence[Tuple[int, int, str]] = QGC_DEFAULT_STREAMS,
 ) -> List[Tuple[int, int, str]]:
     """Return [(msgid, interval_us, name), ...] for SET_MESSAGE_INTERVAL."""
+    if hz is None:
+        return [
+            (msgid, interval_us_for_hz(stream_hz), name)
+            for msgid, stream_hz, name in streams
+        ]
     us = interval_us_for_hz(hz)
     return [(msgid, us, name) for msgid, _ignored_hz, name in streams]
 
@@ -75,7 +79,7 @@ def request_loop(
     mavlink: str = DEFAULT_MAVLINK,
     target_system: int = DEFAULT_TARGET_SYSTEM,
     target_component: int = DEFAULT_TARGET_COMPONENT,
-    hz: float = DEFAULT_STREAM_HZ,
+    hz: float | None = None,
     refresh_sec: float = DEFAULT_REFRESH_SEC,
     heartbeat_timeout_sec: float = DEFAULT_HEARTBEAT_TIMEOUT_SEC,
     once: bool = False,
@@ -110,7 +114,10 @@ def request_loop(
             send_stream_interval_requests(
                 conn, reqs, target_system=sysid, target_component=comp
             )
-            names = ", ".join(f"{n}@{hz:g}Hz" for _, _, n in reqs)
+            if hz is None:
+                names = ", ".join(f"{n}@{(1e6 / interval_us):g}Hz" for _, interval_us, n in reqs)
+            else:
+                names = ", ".join(f"{n}@{hz:g}Hz" for _, _, n in reqs)
             print(
                 f"qgc_mavlink_streams: requested {names} on {mavlink} "
                 f"(sys={sysid} comp={comp})",
@@ -137,7 +144,12 @@ def main(argv: Sequence[str] | None = None) -> int:
     )
     p.add_argument("--target-system", type=int, default=DEFAULT_TARGET_SYSTEM)
     p.add_argument("--target-component", type=int, default=DEFAULT_TARGET_COMPONENT)
-    p.add_argument("--hz", type=float, default=DEFAULT_STREAM_HZ)
+    p.add_argument(
+        "--hz",
+        type=float,
+        default=None,
+        help="Override all streams to this Hz (default: per-stream HIGHRES 100 / OF 50)",
+    )
     p.add_argument("--refresh-sec", type=float, default=DEFAULT_REFRESH_SEC)
     p.add_argument("--heartbeat-timeout", type=float, default=DEFAULT_HEARTBEAT_TIMEOUT_SEC)
     p.add_argument("--once", action="store_true", help="Send once and exit")

@@ -5,7 +5,6 @@ from __future__ import annotations
 import unittest
 
 from qgc_mavlink_streams import (
-    DEFAULT_STREAM_HZ,
     QGC_DEFAULT_STREAMS,
     interval_us_for_hz,
     stream_interval_requests,
@@ -24,11 +23,11 @@ class TestQgcMavlinkStreams(unittest.TestCase):
     def test_interval_us_for_50hz(self):
         self.assertEqual(interval_us_for_hz(50), 20000)
 
-    def test_stream_interval_requests_use_default_hz(self):
+    def test_stream_interval_requests_per_stream_defaults(self):
         reqs = stream_interval_requests()
         by_id = {msgid: (us, name) for msgid, us, name in reqs}
-        self.assertEqual(by_id[105], (interval_us_for_hz(DEFAULT_STREAM_HZ), "HIGHRES_IMU"))
-        self.assertEqual(by_id[106], (interval_us_for_hz(DEFAULT_STREAM_HZ), "OPTICAL_FLOW_RAD"))
+        self.assertEqual(by_id[105], (10000, "HIGHRES_IMU"))
+        self.assertEqual(by_id[106], (20000, "OPTICAL_FLOW_RAD"))
 
     def test_stream_interval_requests_custom_hz(self):
         reqs = stream_interval_requests(hz=10)

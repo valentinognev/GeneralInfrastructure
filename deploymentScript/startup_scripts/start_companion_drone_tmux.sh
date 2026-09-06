@@ -35,6 +35,8 @@ CATSWARM_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 source "${SCRIPT_DIR}/util/companion_rtk_connection.sh"
 # shellcheck disable=SC1091
 source "${SCRIPT_DIR}/util/companion_gps_module.sh"
+# shellcheck disable=SC1091
+source "${SCRIPT_DIR}/util/companion_vio.sh"
 
 _activate_companion_conda() {
     if [ -n "${COMPANION_RUN_IN_RL:-}" ] && [ -x "${COMPANION_RUN_IN_RL}" ] && [ -x "${PYTHON:-}" ]; then
@@ -267,6 +269,8 @@ is_raspberry_pi_5() {
 
 kill_companion() {
     echo "Stopping companion stack (session ${TMUX_SESSION})…" >&2
+    pkill -TERM -f "svo_pi.supervisor" 2>/dev/null || true
+    pkill -TERM -f "/svo_pi/svo_pi" 2>/dev/null || true
     pkill -TERM -f "hardware_adapter/python/ZMQ_to_comm.py" 2>/dev/null || true
     pkill -TERM -f "bin/ZMQ_to_comm_c" 2>/dev/null || true
     pkill -TERM -f "bin/comm_to_ZMQ_c" 2>/dev/null || true
@@ -292,8 +296,9 @@ start_qgc_mavlink_streams() {
     local script="${SCRIPT_DIR}/util/qgc_mavlink_streams.py"
     local py="${COMPANION_PYTHON:-${PYTHON}}"
     local mav="${COMPANION_QGC_MAVLINK:-tcp:127.0.0.1:5760}"
-    local hz="${COMPANION_QGC_STREAM_HZ:-50}"
+    local hz="${COMPANION_QGC_STREAM_HZ:-}"
     local log="${COMPANION_QGC_STREAM_LOG:-/tmp/qgc_mavlink_streams.log}"
+    local hz_args=()
 
     pkill -TERM -f "startup_scripts/util/qgc_mavlink_streams.py" 2>/dev/null || true
     sleep 0.2
@@ -302,7 +307,12 @@ start_qgc_mavlink_streams() {
         return 0
     fi
     echo "Starting QGC MAVLink stream requester…"
-    echo "  mavlink: ${mav}  hz: ${hz}  log: ${log}"
+    if [[ -n "${hz}" ]]; then
+        hz_args+=(--hz="${hz}")
+        echo "  mavlink: ${mav}  hz: ${hz}  log: ${log}"
+    else
+        echo "  mavlink: ${mav}  hz: per-stream (HIGHRES 100 / OF 50)  log: ${log}"
+    fi
     local run_py="${py}"
     # Fleet Pi: conda env RL has pymavlink; plain python3 often does not.
     if [[ ! -x "${run_py}" ]] || ! "${run_py}" -c "import pymavlink" >/dev/null 2>&1; then
@@ -318,7 +328,7 @@ start_qgc_mavlink_streams() {
     fi
     nohup "${run_py}" "${script}" \
         --mavlink="${mav}" \
-        --hz="${hz}" \
+        "${hz_args[@]}" \
         --target-system="${COMPANION_MAVLINK_TARGET_SYSTEM:-1}" \
         >>"${log}" 2>&1 &
     echo "  python: ${run_py}  pid $!"
@@ -586,13 +596,19 @@ fi
 
 start_gps_combo
 
+SCHURVINS_ROOT="${SCHURVINS_ROOT:-$(cd "${CATSWARM_ROOT}/.." && pwd)/SchurVINS}"
+if ! companion_vio_start_in_tmux "${TMUX_SESSION}" "${DRONE_ID}" "${COMPANION_PYTHON:-${PYTHON}}" "${SCHURVINS_ROOT}"; then
+    echo "WARNING: VIO window failed to start — continuing." >&2
+fi
+
 echo ""
 echo "Done."
 echo "  Attach: tmux attach -t ${TMUX_SESSION}"
+VIO_WINDOW="$(companion_vio_window_name "${DRONE_ID}")"
 if [[ "${COMPANION_RTK_SINK}" == "mavlink_rtcm" && -n "${COMPANION_GPS_WINDOW:-}" ]]; then
-    echo "  Windows: ${HW_WINDOW}, ${COMPANION_GPS_WINDOW} (RTCM→MAVLink; RTK: $(companion_rtk_mode_label))"
+    echo "  Windows: ${HW_WINDOW}, ${COMPANION_GPS_WINDOW}, ${VIO_WINDOW} (RTCM→MAVLink; RTK: $(companion_rtk_mode_label))"
 elif [[ -n "${COMPANION_GPS_WINDOW:-}" ]]; then
-    echo "  Windows: ${HW_WINDOW}, ${COMPANION_GPS_WINDOW} (GPS: $(companion_gps_module_label); RTK: $(companion_rtk_mode_label))"
+    echo "  Windows: ${HW_WINDOW}, ${COMPANION_GPS_WINDOW}, ${VIO_WINDOW} (GPS: $(companion_gps_module_label); RTK: $(companion_rtk_mode_label))"
 else
-    echo "  Windows: ${HW_WINDOW} (GPS/RTCM skipped; RTK: $(companion_rtk_mode_label); sink: ${COMPANION_RTK_SINK})"
+    echo "  Windows: ${HW_WINDOW}, ${VIO_WINDOW} (GPS/RTCM skipped; RTK: $(companion_rtk_mode_label); sink: ${COMPANION_RTK_SINK})"
 fi

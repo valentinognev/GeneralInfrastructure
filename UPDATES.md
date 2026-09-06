@@ -2,6 +2,11 @@
 
 This file documents the development progress and changes made to the `CatSwarm/general_infrastructure` project by the AI agent.
 
+## [2026-09-06] Companion vio_N window; HIGHRES 100 Hz default; skip on missing camera
+- Companion start opens `vio_${DRONE_ID}` after GPS (`SCHURVINS_ROOT` default `$(cd CATSWARM_ROOT/.. && pwd)/SchurVINS`). Missing CSI camera or `svo_pi` → supervisor prints skip, window parks with `sleep infinity`, start script never `exit 1`.
+- QGC stream helper per-stream defaults: HIGHRES_IMU msgid 105 @ 100 Hz (10000 us), OPTICAL_FLOW_RAD 50 Hz. `--hz` / `COMPANION_QGC_STREAM_HZ` still overrides all streams when set; omit `--hz` unless that env is set so HIGHRES is not stomped back to 50 Hz.
+- `--kill` pkills `svo_pi.supervisor` and `/svo_pi/svo_pi` before tmux kill-session.
+
 ## [2026-08-14] OS gcc for local HA/SM builds
 - `compile.sh` and `simplemavlinktest/Makefile` use `/usr/bin/gcc` / `/usr/bin/g++`. Companion deploy unchanged (HA Makefile / SM `build.sh` already pin the compiler).
 
