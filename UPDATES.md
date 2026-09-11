@@ -2,6 +2,40 @@
 
 This file documents the development progress and changes made to the `CatSwarm/general_infrastructure` project by the AI agent.
 
+## [2026-09-11] generate() layout test locks spec contract
+- Nested `test_generate_layout_mocked`: `alt_amsl≈200`, world spherical coords, OSM `buildings.dae` + SDF link. `generate()` unchanged. Nested Dockerfiles 1.8.2.
+
+## [2026-09-11] Dedicated SITL mavlink for host VIO IMU
+- `10015_gazebo-classic_iris.post` starts a VIO mavlink instance: PX4 local `14680+px4_instance`, remote `14640+px4_instance`, `HIGHRES_IMU` 100 Hz + GPS/NED. Does not share HA onboard `14540+i`.
+- `sim_vio.sh` start passes `--mavlink=udp:127.0.0.1:$((14640 + id))`. Restart SITL so `.post` runs, then Apply VIO.
+
+## [2026-09-11] Real-area docs + gitignore; spec approved
+- `Dockerfiles/README.md` Noetic: generator CLI, Teradyon, `--volume` catswarm_host, Esri/Terrarium/OSM ODbL attribution. `Dockerfiles/.gitignore` generated rasters only (not ksql DAE). Spec `2026-09-11-real-area-gazebo-world-design.md` status `approved`.
+
+## [2026-09-11] vio_cam_tcp listen survives rospy socket timeout
+- rospy sets a process-wide `socket.setdefaulttimeout`; listen `accept()` then raised `socket.timeout`, the thread died, and host `svo_pi` printed `VIO skipped: no camera` (`:5600` refused).
+- `_default_bind` forces blocking (`settimeout(None)`); `serve_frames` retries `accept()` on timeout.
+
+## [2026-09-11] runSim --world + catswarm_host model path
+- `runSimNoeticMulti.sh --world NAME` (default `empty`). Missing world exits after parse, before cleanup trap (does not kill a running sim). Host `Dockerfiles/models` mounted at `.../models/catswarm_host` (iris overlay avoided). Non-empty: mount `NAME.world`, set `PX4_HOME_*` from `origin.json`. Always pass `-w ${WORLD}` into sitl.
+- `sitl_multiple_run.sh` appends `GAZEBO_MODEL_PATH` `.../models/catswarm_host` immediately after `setup_gazebo.bash`.
+
+## [2026-09-11] Host real-area generate() mosaic + atomic replace
+- Nested `Dockerfiles/scripts/generate_real_area.py` (PX4dockerfiles 1.8.0): `generate()` with injectable `http_get`; Terrarium/Esri mosaic; Overpass GET; two-texture heightmap SDF; atomic `.generating` replace (previous `out` kept on failure). `main` wired. Tests never hit the network.
+
+## [2026-09-11] Host sim_vio libs + Gazebo camera plugin path
+- `sim_vio.sh` start exports `SCHURVINS_HOST_PREFIX` + `LD_LIBRARY_PATH` (`sys/devel/opencv/ros`) so host `svo_pi` finds Focal SVO/OpenCV libs.
+- `sitl_multiple_run.sh` prepends `/usr/lib/x86_64-linux-gnu/gazebo-11/plugins` to `LD_LIBRARY_PATH` so `libgazebo_ros_camera.so` can dlopen `libCameraPlugin.so` (VIO topics had no publisher).
+
+## [2026-09-11] OSM parse + COLLADA extrusion
+- Nested `Dockerfiles/scripts/generate_real_area.py` (PX4dockerfiles 1.7.0): `parse_osm_xml` / `write_buildings_dae`; fixture OSM (height, levels, bridge, degenerate skipped). No `generate()` yet.
+
+## [2026-09-11] Host real-area heightmap, origin.json, world XML
+- Nested `Dockerfiles/scripts/generate_real_area.py` (PX4dockerfiles 1.6.0): `encode_heightmap` `(u8, size_z, pos_z)`; ENU aeqd; `origin.json`; world SDF spherical coords, no ground_plane. No `generate()` yet.
+
+## [2026-09-11] Host real-area generator CLI (bbox, height, args)
+- Nested `Dockerfiles/scripts/generate_real_area.py` (PX4dockerfiles 1.5.0): `--lat --lon --radius-m --out`; WGS84 bbox; OSM extrusion height; `HEIGHTMAP_N=257`. No `generate()` yet.
+
 ## [2026-09-11] vio_cam_tcp keeps listen socket across probe
 - `serve_frames` loops `accept()` for process lifetime. Probe connect+close / send error accepts the next client; `srv` closes only when `gray_iter` is exhausted.
 
@@ -18,6 +52,14 @@ This file documents the development progress and changes made to the `CatSwarm/g
 - `switch_comm_WIFI_RF.sh <id> --wifi|--rf [--gs-host=]`: persist; `companion_tmux_bind_session`; restart `hardware_adapter_<id>.3` only (no GPS/RTCM). Wifi omits `--serial-comm-tx`; keeps `--serialcomm` / RTK `--rtk-zmq-bind`.
 - `start_companion_drone_tmux.sh` reads companion-comm (default rf), exports fabric/host, passes `--wifi-comm-host` into `hardware_adapter_multi.sh`.
 - Pair OB **1.53.0**: Fleet COMM RF | WiFi + Apply COMM → `POST /api/deploy/comm_mode` (this script).
+
+## [2026-09-07] Radio free: killall not pkill -f ZMQ_to_comm_c
+- `pkill -f bin/ZMQ_to_comm_c` matched the SSH/deploy bash line that contained that text and aborted UART free. `ensure_companion_radio_soft_config.sh` now `killall -TERM ZMQ_to_comm_c` + bracketed python pkill.
+
+## [2026-09-07] SSH tmux finds systemd companion session
+- Cause: `companion-drone.service` oneshot `User=pi` has no `XDG_RUNTIME_DIR`; tmux 3.2+ puts `catswarm_sim` in `/tmp/tmux-<uid>/`. SSH PAM sets `XDG_RUNTIME_DIR=/run/user/<uid>` → `switch_rtk_WIFI_RF.sh: tmux session catswarm_sim not found` after RF Apply/Check killed `ZMQ_to_comm`.
+- `companion_tmux_bind_session` tries current server, then `/tmp`, then runtime dir. Sourced by `switch_rtk_WIFI_RF.sh` and `ensure_companion_radio_soft_config.sh`.
+- Pin `TMUX_TMPDIR=/tmp` in the unit, `run-companion-drone.sh`, and `start_companion_drone_tmux.sh`. Tests: `util/tests/test_companion_tmux.py`. Sync `startup_scripts` (Update); pin takes effect on next companion start.
 
 ## [2026-09-06] VIO tmux python falls back to system python3 for picamera2
 - `companion_vio_start_in_tmux` keeps the conda interpreter when it can `import picamera2`; otherwise uses `/usr/bin/python3` (Pi Debian picamera2 is 3.13; conda `python3` after `conda activate RL` is 3.11 and must not be used as the fallback).

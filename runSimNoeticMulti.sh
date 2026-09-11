@@ -41,6 +41,7 @@ cleanup_on_exit() {
 # Default values
 NUM_DRONES=1
 POSITIONS_FILE="${SCRIPT_DIR}/multidrone/positions.txt"
+WORLD=empty
 
 # Argument parsing
 while [[ $# -gt 0 ]]; do
@@ -55,6 +56,7 @@ while [[ $# -gt 0 ]]; do
             echo "  --kill                   Clean up/kill existing simulation containers and processes"
             echo "  --num=N, --num N         Number of drones to spawn (default: 1)"
             echo "  --file=PATH, --file PATH Path to positions file (default: multidrone/positions.txt)"
+            echo "  --world=NAME, --world NAME  Gazebo world (default: empty). Host maps in Dockerfiles/models/NAME/"
             echo ""
             exit 0
             ;;
@@ -79,6 +81,14 @@ while [[ $# -gt 0 ]]; do
             POSITIONS_FILE="$2"
             shift 2
             ;;
+        --world=*)
+            WORLD="${1#*=}"
+            shift
+            ;;
+        --world)
+            WORLD="$2"
+            shift 2
+            ;;
         [0-9]*)
             NUM_DRONES="$1"
             shift
@@ -90,6 +100,21 @@ while [[ $# -gt 0 ]]; do
             ;;
     esac
 done
+
+if [[ "$WORLD" != "empty" ]]; then
+    HOST_MODELS="${SCRIPT_DIR}/Dockerfiles/models"
+    WORLD_FILE="${HOST_MODELS}/${WORLD}/${WORLD}.world"
+    ORIGIN_FILE="${HOST_MODELS}/${WORLD}/origin.json"
+    if [[ ! -f "$WORLD_FILE" || ! -f "$ORIGIN_FILE" ]]; then
+        echo "World '${WORLD}' not found (need ${WORLD_FILE} and origin.json)."
+        echo "Generate it first, e.g.:"
+        echo "  python3 ${SCRIPT_DIR}/Dockerfiles/scripts/generate_real_area.py --lat 32.869354 --lon 35.274463 --radius-m 500 --out ${SCRIPT_DIR}/Dockerfiles/models/teradyon"
+        exit 1
+    fi
+    PX4_HOME_LAT=$(python3 -c "import json; print(json.load(open('${ORIGIN_FILE}'))['lat'])")
+    PX4_HOME_LON=$(python3 -c "import json; print(json.load(open('${ORIGIN_FILE}'))['lon'])")
+    PX4_HOME_ALT=$(python3 -c "import json; print(json.load(open('${ORIGIN_FILE}'))['alt_amsl'])")
+fi
 
 # Set trap to cleanup on script exit
 trap cleanup_on_exit EXIT INT TERM
@@ -128,6 +153,7 @@ if [ "$POSITIONS_FILE" = "$DEFAULT_POSITIONS" ]; then
         --volume="${SCRIPT_DIR}/multidrone/inject_iris_colors.py:/home/valentin/PX4-Autopilot/Tools/simulation/inject_iris_colors.py:ro"
         --volume="${SCRIPT_DIR}/multidrone/vio_cam_tcp.py:/home/valentin/PX4-Autopilot/Tools/simulation/vio_cam_tcp.py:ro"
         --volume="${SCRIPT_DIR}/multidrone/airframes/10015_gazebo-classic_iris.post:/home/valentin/PX4-Autopilot/build/px4_sitl_default/etc/init.d-posix/airframes/10015_gazebo-classic_iris.post:ro"
+        --volume="${SCRIPT_DIR}/Dockerfiles/models:/home/valentin/PX4-Autopilot/Tools/simulation/gazebo-classic/sitl_gazebo-classic/models/catswarm_host:ro"
     )
 else
     # Use custom positions file
@@ -141,12 +167,23 @@ else
         --volume="${SCRIPT_DIR}/multidrone/inject_iris_colors.py:/home/valentin/PX4-Autopilot/Tools/simulation/inject_iris_colors.py:ro"
         --volume="${SCRIPT_DIR}/multidrone/vio_cam_tcp.py:/home/valentin/PX4-Autopilot/Tools/simulation/vio_cam_tcp.py:ro"
         --volume="${SCRIPT_DIR}/multidrone/airframes/10015_gazebo-classic_iris.post:/home/valentin/PX4-Autopilot/build/px4_sitl_default/etc/init.d-posix/airframes/10015_gazebo-classic_iris.post:ro"
+        --volume="${SCRIPT_DIR}/Dockerfiles/models:/home/valentin/PX4-Autopilot/Tools/simulation/gazebo-classic/sitl_gazebo-classic/models/catswarm_host:ro"
     )
 fi
 
 # Add XAUTHORITY volume only if file exists
 if [ -f "$XAUTH_FILE" ]; then
     DOCKER_VOLUMES+=(--volume="${XAUTH_FILE}:${XAUTH_FILE}:ro")
+fi
+
+PX4_HOME_ENV=()
+if [[ "$WORLD" != "empty" ]]; then
+    DOCKER_VOLUMES+=(--volume="${WORLD_FILE}:/home/valentin/PX4-Autopilot/Tools/simulation/gazebo-classic/sitl_gazebo-classic/worlds/${WORLD}.world:ro")
+    PX4_HOME_ENV=(
+        --env="PX4_HOME_LAT=${PX4_HOME_LAT}"
+        --env="PX4_HOME_LON=${PX4_HOME_LON}"
+        --env="PX4_HOME_ALT=${PX4_HOME_ALT}"
+    )
 fi
 
 # Run docker container with the simulation command
@@ -163,9 +200,10 @@ docker run -it --net=host \
            --env="GAZEBO_IP=127.0.0.1" \
            --env="GAZEBO_MASTER_URI=http://127.0.0.1:11345" \
            --env="XAUTHORITY=${XAUTH_FILE}" \
+           "${PX4_HOME_ENV[@]}" \
            "${DOCKER_VOLUMES[@]}" \
            --name=${CONTAINER_NAME} \
            ${CONTAINER_NAME} \
-           /bin/bash -c "./Tools/simulation/gazebo-classic/sitl_multiple_run2.sh -p ${CONTAINER_POSITIONS_PATH} -n ${NUM_DRONES}"
+           /bin/bash -c "./Tools/simulation/gazebo-classic/sitl_multiple_run2.sh -p ${CONTAINER_POSITIONS_PATH} -n ${NUM_DRONES} -w ${WORLD}"
 
 # Note: Cleanup is handled by the trap function on exit

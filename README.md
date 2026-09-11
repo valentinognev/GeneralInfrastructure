@@ -20,7 +20,8 @@ The system follows a modular architecture:
 ### Simulation & Setup
 - **`fixedwing/runSimFlightGearRascal.sh`**: Noble + FlightGear Rascal plane. Mounts `fixedwing/fg_spawn.env` (`FG_ARGS_EX`) for in-air spawn (default 500 m / ~30 m/s) without rebuilding the image.
 - **`fixedwing/run_straight_flight.py`**: Starts the Rascal sim (unless `--no-sim`), arms if needed, switches OFFBOARD, streams body-forward velocity setpoints for straight flight.
-- **`runSimNoeticMulti.sh`**: The main entry point. Starts the Dockerized PX4/ROS simulation environment for multiple drones. It handles container management, X11 forwarding, and cleaning up processes. Mounts iris sensors inject (px4flow + lidar), iris OB-color inject, + `10015_gazebo-classic_iris.post` so SITL publishes `OPTICAL_FLOW` / `DISTANCE_SENSOR` (matches cage rangefinder).
+- **`runSimNoeticMulti.sh`**: The main entry point. Starts the Dockerized PX4/ROS simulation environment for multiple drones. It handles container management, X11 forwarding, and cleaning up processes. Mounts iris sensors inject (px4flow + lidar), iris OB-color inject, + `10015_gazebo-classic_iris.post` so SITL publishes `OPTICAL_FLOW` / `DISTANCE_SENSOR` (matches cage rangefinder). `--world NAME` (default `empty`) mounts host `Dockerfiles/models` at `.../models/catswarm_host` (does not overlay PX4 `iris`); non-empty worlds also mount `NAME.world` and set `PX4_HOME_*` from `origin.json`.
+- **`Dockerfiles/scripts/generate_real_area.py`**: Host-only generator (`--lat --lon --radius-m --out`) for Gazebo Classic ortho + heightmap + OSM solids. Run from CatSwarm root; see `Dockerfiles/README.md`. GUI does not call it.
 - **`multidrone/inject_iris_sensors.py`**: Injects nested `model://px4flow` + `model://lidar` into generated multi-SITL iris SDF before spawn. (`inject_iris_lidar.py` is a thin compat wrapper.)
 - **`multidrone/inject_iris_colors.py`**: Recolors iris mesh visuals at spawn to Observation Board `droneColors.ts` palette (`iris_N` → OB id `N`).
 - **`multidrone/run_multidrone_bridges.sh`**: Sets up the communication layer. It creates a tmux session with pairs of bridge processes (`mavlink_to_ZMQ` and `zmq_commands_mavlink`) for each drone defined in the positions file.
@@ -42,8 +43,9 @@ The system follows a modular architecture:
 1.  **Start the Simulation**:
     ```bash
     ./runSimNoeticMulti.sh --num 3
+    ./runSimNoeticMulti.sh --num 3 --world teradyon
     ```
-    (Adjust `--num` for the number of drones).
+    (Adjust `--num` for the number of drones. `--world` default is PX4 `empty`; generate host maps first.)
 
 2.  **Start Communication Bridges**:
     ```bash

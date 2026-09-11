@@ -144,6 +144,8 @@ sleep 1
 
 source ${src_path}/Tools/simulation/gazebo-classic/setup_gazebo.bash ${src_path} ${src_path}/build/${target}
 
+export GAZEBO_MODEL_PATH="${GAZEBO_MODEL_PATH}:/home/valentin/PX4-Autopilot/Tools/simulation/gazebo-classic/sitl_gazebo-classic/models/catswarm_host"
+
 # ROS2: gazebo_ros init/factory. ROS1 (Noetic): API plugin so model camera
 # plugins can advertise. Start roscore only when the master is down.
 ROSCORE_OWNED=0
@@ -165,6 +167,11 @@ else
 fi
 
 echo "Starting gazebo"
+# libgazebo_ros_camera.so dlopens libCameraPlugin.so from the Gazebo distro dir.
+GAZEBO11_PLUGINS="/usr/lib/x86_64-linux-gnu/gazebo-11/plugins"
+if [ -d "${GAZEBO11_PLUGINS}" ]; then
+	export LD_LIBRARY_PATH="${GAZEBO11_PLUGINS}${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+fi
 gzserver ${src_path}/Tools/simulation/gazebo-classic/sitl_gazebo-classic/worlds/${world}.world --verbose $ros_args &
 sleep 5
 
