@@ -98,6 +98,50 @@ MOCKUP_SNIPPET = f"""
     </plugin>
 """
 
+VIO_CAM_SNIPPET = """
+    <!-- CatSwarm: VIO mono camera -->
+    <model name="vio_cam">
+      <pose>0.10 0 0 0 0 0</pose>
+      <link name="link">
+        <inertial>
+          <mass>0.01</mass>
+          <inertia>
+            <ixx>1e-6</ixx><ixy>0</ixy><ixz>0</ixz>
+            <iyy>1e-6</iyy><iyz>0</iyz><izz>1e-6</izz>
+          </inertia>
+        </inertial>
+        <sensor name="camera" type="camera">
+          <update_rate>10</update_rate>
+          <camera>
+            <horizontal_fov>1.04719755</horizontal_fov>
+            <image>
+              <width>320</width>
+              <height>240</height>
+              <format>R8G8B8</format>
+            </image>
+          </camera>
+          <plugin name="vio_cam_controller" filename="libgazebo_ros_camera.so">
+            <robotNamespace></robotNamespace>
+            <cameraName>vio_cam</cameraName>
+            <imageTopicName>image_raw</imageTopicName>
+          </plugin>
+          <always_on>1</always_on>
+        </sensor>
+      </link>
+    </model>
+    <joint name="vio_cam_pitch" type="revolute">
+      <parent>base_link</parent>
+      <child>vio_cam::link</child>
+      <axis>
+        <xyz>0 1 0</xyz>
+        <limit>
+          <lower>-1.5708</lower>
+          <upper>1.5708</upper>
+        </limit>
+      </axis>
+    </joint>
+"""
+
 
 def resolve_of_mode(of_mode: str | None = None) -> str:
     mode = (of_mode or os.environ.get("CATSWARM_OF_MODE") or DEFAULT_OF_MODE).strip().lower()
@@ -121,6 +165,8 @@ def inject(sdf_path: Path, of_mode: str | None = None) -> None:
         additions.append(PX4FLOW_SNIPPET)
     if mode in ("mockup", "both") and MOCKUP_PLUGIN_SO not in text:
         additions.append(MOCKUP_SNIPPET)
+    if 'name="vio_cam_pitch"' not in text:
+        additions.append(VIO_CAM_SNIPPET)
     if not additions:
         return
 

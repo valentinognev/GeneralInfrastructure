@@ -10,6 +10,10 @@ function cleanup() {
 	pkill -x px4
 	pkill gzclient
 	pkill gzserver
+	pkill -f vio_cam_tcp.py || true
+	if [ "${ROSCORE_OWNED:-0}" = "1" ]; then
+		pkill -x roscore || true
+	fi
 }
 
 function spawn_model() {
@@ -140,11 +144,24 @@ sleep 1
 
 source ${src_path}/Tools/simulation/gazebo-classic/setup_gazebo.bash ${src_path} ${src_path}/build/${target}
 
-# To use gazebo_ros ROS2 plugins
+# ROS2: gazebo_ros init/factory. ROS1 (Noetic): API plugin so model camera
+# plugins can advertise. Start roscore only when the master is down.
+ROSCORE_OWNED=0
 if [[ -n "$ROS_VERSION" ]] && [ "$ROS_VERSION" == "2" ]; then
 	ros_args="-s libgazebo_ros_init.so -s libgazebo_ros_factory.so"
 else
-	ros_args=""
+	ros_args="-s libgazebo_ros_api_plugin.so"
+	if command -v roscore >/dev/null 2>&1 && ! rosnode list >/dev/null 2>&1; then
+		echo "Starting roscore"
+		roscore &
+		ROSCORE_OWNED=1
+		_i=0
+		while [ "$_i" -lt 50 ]; do
+			rosnode list >/dev/null 2>&1 && break
+			sleep 0.1
+			_i=$((_i + 1))
+		done
+	fi
 fi
 
 echo "Starting gazebo"
@@ -231,6 +248,14 @@ else
 
 fi
 trap "cleanup" SIGINT SIGTERM EXIT
+
+VIO_CAM_TCP="${VIO_CAM_TCP:-/home/valentin/PX4-Autopilot/Tools/simulation/vio_cam_tcp.py}"
+if [ -f "$VIO_CAM_TCP" ]; then
+	echo "Starting vio_cam_tcp for ${n} drones"
+	python3 "$VIO_CAM_TCP" --num "${n}" &
+else
+	echo "WARNING: $VIO_CAM_TCP missing — no SVOF camera TCP"
+fi
 
 echo "Starting gazebo client"
 gzclient

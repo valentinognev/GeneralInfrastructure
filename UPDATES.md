@@ -2,6 +2,14 @@
 
 This file documents the development progress and changes made to the `CatSwarm/general_infrastructure` project by the AI agent.
 
+## [2026-09-11] vio_cam_tcp keeps listen socket across probe
+- `serve_frames` loops `accept()` for process lifetime. Probe connect+close / send error accepts the next client; `srv` closes only when `gray_iter` is exhausted.
+
+## [2026-09-11] Sim VIO camera, TCP republisher, host sim_vio
+- `inject_iris_sensors.py` adds pitchable `vio_cam` (320×240, 60° hfov, joint `vio_cam_pitch`) and keeps OF/lidar.
+- `multidrone/vio_cam_tcp.py` republishes `/iris_{id}/vio_cam/image_raw` as SVOF grayscale on `5600+(id-1)` (host-mounted; no image rebuild). `sitl_multiple_run.sh` starts it after spawn.
+- `deploymentScript/startup_scripts/util/sim_vio.sh` start/stop/pitch host `svo_pi --source gazebo`; skip never fails the swarm; pitch returns gz exit code.
+
 ## [2026-09-10] Apply RTK keeps WiFi COMM argv
 - `switch_rtk_WIFI_RF.sh` relaunch of `hardware_adapter_<id>.3` loads `~/.config/companion-comm` (`load_companion_comm` / `z2c_extra_args`) and omits `--serial-comm-tx` when fabric is wifi (same table as `switch_comm_WIFI_RF.sh`). Does not overwrite companion-comm.
 
@@ -10,6 +18,10 @@ This file documents the development progress and changes made to the `CatSwarm/g
 - `switch_comm_WIFI_RF.sh <id> --wifi|--rf [--gs-host=]`: persist; `companion_tmux_bind_session`; restart `hardware_adapter_<id>.3` only (no GPS/RTCM). Wifi omits `--serial-comm-tx`; keeps `--serialcomm` / RTK `--rtk-zmq-bind`.
 - `start_companion_drone_tmux.sh` reads companion-comm (default rf), exports fabric/host, passes `--wifi-comm-host` into `hardware_adapter_multi.sh`.
 - Pair OB **1.53.0**: Fleet COMM RF | WiFi + Apply COMM → `POST /api/deploy/comm_mode` (this script).
+
+## [2026-09-06] VIO tmux python falls back to system python3 for picamera2
+- `companion_vio_start_in_tmux` keeps the conda interpreter when it can `import picamera2`; otherwise uses `/usr/bin/python3` (Pi Debian picamera2 is 3.13; conda `python3` after `conda activate RL` is 3.11 and must not be used as the fallback).
+
 
 ## [2026-09-06] SCHURVINS_ROOT prefers CatSwarm/SchurVINS
 - Default is `${CATSWARM_ROOT}/SchurVINS` when that directory exists, else `$(cd "${CATSWARM_ROOT}/.." && pwd)/SchurVINS`. Covers Pi `~/RL/SchurVINS` and laptop `CatSwarm/SchurVINS` (GI as CATSWARM_ROOT). Env `SCHURVINS_ROOT` still wins.

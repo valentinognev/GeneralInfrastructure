@@ -115,3 +115,17 @@ def test_env_override(monkeypatch):
 def test_invalid_mode_rejected():
     with pytest.raises(SystemExit):
         resolve_of_mode("bogus")
+
+
+def test_inject_adds_vio_camera_and_keeps_of_lidar(tmp_path: Path):
+    sdf = _write(tmp_path, BARE_IRIS)
+    inject(sdf)
+    text = sdf.read_text(encoding="utf-8")
+    assert 'name="vio_cam_pitch"' in text
+    assert "horizontal_fov>1.04719755" in text.replace(" ", "") or "1.04719755" in text
+    assert "320" in text and "240" in text
+    assert 'name="lidar_joint"' in text
+    assert MOCKUP_PLUGIN_SO in text
+    inject(sdf)
+    assert sdf.read_text(encoding="utf-8").count('name="vio_cam_pitch"') == 1
+

@@ -38,6 +38,12 @@ class TestCompanionVio(unittest.TestCase):
         self.assertIn("--calib=${schurvins}/svo_ros/param/calib/imx500_320.yaml", text)
         self.assertIn("--options=${schurvins}/svo_ros/param/vio_mono.yaml", text)
 
+    def test_tmux_hook_falls_back_to_system_python_for_picamera2(self):
+        text = (UTIL / "companion_vio.sh").read_text()
+        self.assertIn("from picamera2 import Picamera2", text)
+        # Conda activate puts RL python3 first; must pin Debian picamera2.
+        self.assertIn("/usr/bin/python3", text)
+
     def test_kill_companion_pkills_feeder(self):
         text = (STARTUP / "start_companion_drone_tmux.sh").read_text()
         self.assertIn('pkill -TERM -f "svo_pi.feeder"', text)
