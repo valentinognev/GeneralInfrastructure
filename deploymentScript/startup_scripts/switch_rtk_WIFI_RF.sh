@@ -96,6 +96,31 @@ fi
 companion_rtk_apply_mode
 companion_rtk_show_current_choice "${COMPANION_RTK_SOURCE:-}"
 
+# COMM fabric is independent of RTK: relaunch pane .3 with saved companion-comm argv.
+_COMM_STATE="${COMPANION_COMM_STATE_FILE:-${HOME}/.config/companion-comm}"
+_FABRIC=rf
+_GS_HOST="${COMPANION_BASE_HOST:-192.168.0.43}"
+_EXTRA=""
+_py="${PYTHON}"
+if [[ ! -x "${_py}" ]]; then
+  _py="$(command -v python3 || true)"
+fi
+if [[ -n "${_py}" ]]; then
+  _COMM_OUT="$(
+    PYTHONPATH="${SCRIPT_DIR}/util" "${_py}" -c \
+      "from companion_comm import load_companion_comm, z2c_extra_args
+import sys
+d = load_companion_comm(sys.argv[1])
+fabric = d['COMPANION_COMM_FABRIC']
+host = d.get('COMPANION_COMM_GS_HOST') or sys.argv[2]
+print(fabric)
+print(' '.join(z2c_extra_args(fabric, host)))" \
+      "${_COMM_STATE}" "${_GS_HOST}"
+  )"
+  _FABRIC="$(printf '%s\n' "${_COMM_OUT}" | sed -n '1p')"
+  _EXTRA="$(printf '%s\n' "${_COMM_OUT}" | sed -n '2p')"
+fi
+
 if ! tmux has-session -t "${SESSION}" 2>/dev/null; then
   echo "switch_rtk_WIFI_RF.sh: tmux session ${SESSION} not found" >&2
   exit 1
@@ -116,9 +141,13 @@ if [[ -x "${Z2C_BIN}" ]]; then
   Z2C_CMD+=" --zmq-sys-manager-out-port=${FD_PORT}"
   Z2C_CMD+=" --serialcomm=${UART2} --zmq-gs-forward-port=7799"
   if [[ "${COMPANION_USE_RF_RTK_BRIDGE}" -eq 1 ]]; then
-    Z2C_CMD+=" --rtk-zmq-bind=${COMPANION_RTK_ZMQ_BIND} --serial-comm-tx"
-  else
+    Z2C_CMD+=" --rtk-zmq-bind=${COMPANION_RTK_ZMQ_BIND}"
+  fi
+  if [[ "${_FABRIC}" != "wifi" ]]; then
     Z2C_CMD+=" --serial-comm-tx"
+  fi
+  if [[ -n "${_EXTRA}" ]]; then
+    Z2C_CMD+=" ${_EXTRA}"
   fi
   _Z2C_LAUNCH_CD="${CATSWARM_ROOT}/hardware_adapter"
 else
@@ -126,9 +155,15 @@ else
   Z2C_CMD+=" --zmq-flight-data-port=${FD_PORT} --zmq-comm-pub-port=${COMM_PUB_PORT}"
   Z2C_CMD+=" --drone-id=${DRONE_ID} --zmq-mavlink-fallback-port=${MAV_FB_PORT}"
   Z2C_CMD+=" --zmq-comm-neighbour-sub-port=${NEIGH_SUB_PORT}"
-  Z2C_CMD+=" --serialcomm=${UART2} --serial-comm-tx"
+  Z2C_CMD+=" --serialcomm=${UART2}"
+  if [[ "${_FABRIC}" != "wifi" ]]; then
+    Z2C_CMD+=" --serial-comm-tx"
+  fi
   if [[ "${COMPANION_USE_RF_RTK_BRIDGE}" -eq 1 ]]; then
     Z2C_CMD+=" --rtk-zmq-bind=${COMPANION_RTK_ZMQ_BIND}"
+  fi
+  if [[ -n "${_EXTRA}" ]]; then
+    Z2C_CMD+=" ${_EXTRA}"
   fi
   _Z2C_LAUNCH_CD="${CATSWARM_ROOT}/hardware_adapter/python"
 fi
@@ -145,7 +180,7 @@ _send() {
   tmux send-keys -t "${target}" "${launch}" C-m
 }
 
-echo "switch_rtk_WIFI_RF.sh: RTK=$(companion_rtk_mode_label) sink=${COMPANION_RTK_SINK} GPS=$(companion_gps_module_label)" >&2
+echo "switch_rtk_WIFI_RF.sh: RTK=$(companion_rtk_mode_label) sink=${COMPANION_RTK_SINK} GPS=$(companion_gps_module_label) COMM=${_FABRIC}" >&2
 echo "switch_rtk_WIFI_RF.sh: restarting ${SESSION}:${HW_WIN}.3 (ZMQ_to_comm)…" >&2
 _send "${SESSION}:${HW_WIN}.3" "${Z2C_CMD}"
 

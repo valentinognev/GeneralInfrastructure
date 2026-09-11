@@ -19,6 +19,10 @@
 #     Serial — UART2 GS frames → ZMQ_to_comm → tcp://127.0.0.1:5562 → rover_zmq
 #     Sink (COMPANION_RTK_SINK): rover_uart (default) | mavlink_rtcm (rtcm_to_mavlink → FC)
 #
+#   COMM fabric (saved in ~/.config/companion-comm; switch with switch_comm_WIFI_RF.sh):
+#     rf   — serial COMM TX/RX on UART2 (default)
+#     wifi — ZMQ_to_comm CONNECT tcp://<GS>:18811 / :18812 (no serial COMM TX)
+#
 # Usage:
 #   ./start_companion_drone_tmux.sh <drone_id> [CPP|PY|python]
 #   ./start_companion_drone_tmux.sh --drone-id=N [--version=CPP|PY] [--serial=DEVICE] [--session=NAME]
@@ -483,6 +487,30 @@ fi
 companion_rtk_apply_mode
 companion_rtk_show_current_choice "${COMPANION_RTK_SOURCE:-}"
 
+# COMM fabric: ~/.config/companion-comm (default rf). Env wins over saved file.
+COMPANION_COMM_STATE_FILE="${COMPANION_COMM_STATE_FILE:-${HOME}/.config/companion-comm}"
+_COMM_FABRIC_PRIOR="${COMPANION_COMM_FABRIC:-}"
+_COMM_HOST_PRIOR="${COMPANION_COMM_GS_HOST:-}"
+if [[ -f "${COMPANION_COMM_STATE_FILE}" ]]; then
+    # shellcheck disable=SC1090
+    source "${COMPANION_COMM_STATE_FILE}"
+fi
+if [[ -n "${_COMM_FABRIC_PRIOR}" ]]; then
+    COMPANION_COMM_FABRIC="${_COMM_FABRIC_PRIOR}"
+fi
+if [[ -n "${_COMM_HOST_PRIOR}" ]]; then
+    COMPANION_COMM_GS_HOST="${_COMM_HOST_PRIOR}"
+fi
+COMPANION_COMM_FABRIC="${COMPANION_COMM_FABRIC:-rf}"
+case "${COMPANION_COMM_FABRIC}" in
+    wifi|rf) ;;
+    *) COMPANION_COMM_FABRIC=rf ;;
+esac
+if [[ -z "${COMPANION_COMM_GS_HOST:-}" ]]; then
+    COMPANION_COMM_GS_HOST="${COMPANION_BASE_HOST}"
+fi
+export COMPANION_COMM_FABRIC COMPANION_COMM_GS_HOST
+
 if [[ "${COMPANION_RTK_SINK}" == "mavlink_rtcm" ]]; then
     RTCM_MAV_LAUNCHER="${CATSWARM_ROOT}/GPS_RTK/startRtcmToMavlinkPI.sh"
     if [[ ! -f "${RTCM_MAV_LAUNCHER}" ]]; then
@@ -532,6 +560,7 @@ fi
 if [ -n "${MISSION_SYS_MANAGER_IN}" ]; then
     HW_CMD+=( "--zmqSysManagerInPort=${MISSION_SYS_MANAGER_IN}" )
 fi
+HW_CMD+=( "--wifi-comm-host=${COMPANION_COMM_GS_HOST}" )
 
 echo "Starting hardware adapter (tmux layout)…"
 echo "  Session:  ${TMUX_SESSION}"
@@ -540,6 +569,7 @@ echo "  Version:  ${VERSION_UPPER}"
 echo "  GS UART2: ${SERIAL_DEVICE:-<none>}"
 echo "  RTK mode: ${COMPANION_RTK_MODE} → ${COMPANION_RTK_ZMQ_URL}"
 echo "  RTK sink: ${COMPANION_RTK_SINK}"
+echo "  COMM:     ${COMPANION_COMM_FABRIC} gs=${COMPANION_COMM_GS_HOST}"
 echo "  GPS module: ${COMPANION_GPS_MODULE} → ${COMPANION_GPS_WINDOW}"
 "${HW_CMD[@]}"
 

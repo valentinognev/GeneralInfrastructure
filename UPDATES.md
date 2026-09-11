@@ -2,6 +2,15 @@
 
 This file documents the development progress and changes made to the `CatSwarm/general_infrastructure` project by the AI agent.
 
+## [2026-09-10] Apply RTK keeps WiFi COMM argv
+- `switch_rtk_WIFI_RF.sh` relaunch of `hardware_adapter_<id>.3` loads `~/.config/companion-comm` (`load_companion_comm` / `z2c_extra_args`) and omits `--serial-comm-tx` when fabric is wifi (same table as `switch_comm_WIFI_RF.sh`). Does not overwrite companion-comm.
+
+## [2026-09-10] Companion COMM fabric persist + switch_comm_WIFI_RF
+- `~/.config/companion-comm`: `COMPANION_COMM_FABRIC` (`wifi`|`rf`, default rf) and `COMPANION_COMM_GS_HOST`. Helper `util/companion_comm.py`: `load_companion_comm` / `save_companion_comm` / `z2c_extra_args` (Task 7 tokens `:18811`/`:18812`; rf → `[]`).
+- `switch_comm_WIFI_RF.sh <id> --wifi|--rf [--gs-host=]`: persist; `companion_tmux_bind_session`; restart `hardware_adapter_<id>.3` only (no GPS/RTCM). Wifi omits `--serial-comm-tx`; keeps `--serialcomm` / RTK `--rtk-zmq-bind`.
+- `start_companion_drone_tmux.sh` reads companion-comm (default rf), exports fabric/host, passes `--wifi-comm-host` into `hardware_adapter_multi.sh`.
+- Pair OB **1.53.0**: Fleet COMM RF | WiFi + Apply COMM → `POST /api/deploy/comm_mode` (this script).
+
 ## [2026-09-06] SCHURVINS_ROOT prefers CatSwarm/SchurVINS
 - Default is `${CATSWARM_ROOT}/SchurVINS` when that directory exists, else `$(cd "${CATSWARM_ROOT}/.." && pwd)/SchurVINS`. Covers Pi `~/RL/SchurVINS` and laptop `CatSwarm/SchurVINS` (GI as CATSWARM_ROOT). Env `SCHURVINS_ROOT` still wins.
 - Spec helper `default_schurvins_root` in `companion_vio_spec.py`; tests in `test_companion_vio.py`.
