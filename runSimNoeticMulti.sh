@@ -42,6 +42,8 @@ cleanup_on_exit() {
 NUM_DRONES=1
 POSITIONS_FILE="${SCRIPT_DIR}/multidrone/positions.txt"
 WORLD=empty
+VIO_CAM=1
+VIO_PITCH=-90
 
 # Argument parsing
 while [[ $# -gt 0 ]]; do
@@ -57,6 +59,8 @@ while [[ $# -gt 0 ]]; do
             echo "  --num=N, --num N         Number of drones to spawn (default: 1)"
             echo "  --file=PATH, --file PATH Path to positions file (default: multidrone/positions.txt)"
             echo "  --world=NAME, --world NAME  Gazebo world (default: empty). Host maps in Dockerfiles/models/NAME/"
+            echo "  --vio-cam=0|1, --vio-cam 0|1  Inject Gazebo VIO camera + vio_cam_tcp (default: 1)"
+            echo "  --vio-pitch=DEG, --vio-pitch DEG  FRD camera pitch degrees [-90, 0] baked into iris SDF (default: -90)"
             echo ""
             exit 0
             ;;
@@ -87,6 +91,22 @@ while [[ $# -gt 0 ]]; do
             ;;
         --world)
             WORLD="$2"
+            shift 2
+            ;;
+        --vio-cam=*)
+            VIO_CAM="${1#*=}"
+            shift
+            ;;
+        --vio-cam)
+            VIO_CAM="$2"
+            shift 2
+            ;;
+        --vio-pitch=*)
+            VIO_PITCH="${1#*=}"
+            shift
+            ;;
+        --vio-pitch)
+            VIO_PITCH="$2"
             shift 2
             ;;
         [0-9]*)
@@ -197,6 +217,8 @@ docker run -it --net=host \
            --env="DISPLAY=$DISPLAY" \
            --env="QT_X11_NO_MITSHM=1" \
            --env="CATSWARM_OF_MODE=${CATSWARM_OF_MODE:-mockup}" \
+           --env="CATSWARM_VIO_CAM=${VIO_CAM}" \
+           --env="CATSWARM_VIO_PITCH=${VIO_PITCH}" \
            --env="GAZEBO_IP=127.0.0.1" \
            --env="GAZEBO_MASTER_URI=http://127.0.0.1:11345" \
            --env="XAUTHORITY=${XAUTH_FILE}" \

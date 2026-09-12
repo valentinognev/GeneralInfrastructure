@@ -257,9 +257,11 @@ fi
 trap "cleanup" SIGINT SIGTERM EXIT
 
 VIO_CAM_TCP="${VIO_CAM_TCP:-/home/valentin/PX4-Autopilot/Tools/simulation/vio_cam_tcp.py}"
-if [ -f "$VIO_CAM_TCP" ]; then
+if [ "${CATSWARM_VIO_CAM:-1}" != "0" ] && [ -f "$VIO_CAM_TCP" ]; then
 	echo "Starting vio_cam_tcp for ${n} drones"
 	python3 "$VIO_CAM_TCP" --num "${n}" &
+elif [ "${CATSWARM_VIO_CAM:-1}" = "0" ]; then
+	echo "CATSWARM_VIO_CAM=0 — skipping vio_cam_tcp"
 else
 	echo "WARNING: $VIO_CAM_TCP missing — no SVOF camera TCP"
 fi

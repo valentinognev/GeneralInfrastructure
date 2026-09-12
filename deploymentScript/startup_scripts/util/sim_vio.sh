@@ -6,7 +6,7 @@
 #   sim_vio.sh pitch <id> <deg>
 #
 # start always returns 0 (skip/park never fails the swarm).
-# pitch returns gz's exit code (nonzero if the model is missing).
+# pitch is a no-op (look direction is SDF CATSWARM_VIO_PITCH; gz joint yanks iris).
 
 set -u
 
@@ -25,10 +25,12 @@ case "$cmd" in
     window="$(sim_vio_window_name "${id}")"
     py_root="${schurvins}/svo_pi/python"
     sock="/tmp/svo_pi_${id}.sock"
+    host_prefix="${SCHURVINS_HOST_PREFIX:-$HOME/.local/share/schurvins}"
+    ld_path="${host_prefix}/sys/lib:${host_prefix}/devel/lib:${host_prefix}/opencv/lib:${host_prefix}/ros/lib${LD_LIBRARY_PATH:+:${LD_LIBRARY_PATH}}"
     tmux has-session -t "${session}" 2>/dev/null || tmux new-session -d -s "${session}"
     tmux kill-window -t "${session}:${window}" 2>/dev/null || true
     tmux new-window -t "${session}" -n "${window}" \
-      "export PYTHONPATH='${py_root}'; ${python} -m svo_pi.supervisor --drone-id=${id} --svo-pi='${schurvins}/svo_pi/svo_pi' --calib='${calib}' --options='${options}' --source gazebo --mavlink=udp:127.0.0.1:$((14540 + id - 1)); echo; echo '[sim_vio window parked]'; exec sleep infinity"
+      "export PYTHONPATH='${py_root}'; export SCHURVINS_HOST_PREFIX='${host_prefix}'; export LD_LIBRARY_PATH='${ld_path}'; ${python} -m svo_pi.supervisor --drone-id=${id} --svo-pi='${schurvins}/svo_pi/svo_pi' --calib='${calib}' --options='${options}' --source gazebo --mavlink=udp:127.0.0.1:$((14640 + id)); echo; echo '[sim_vio window parked]'; exec sleep infinity"
     exit 0
     ;;
   stop)
@@ -42,9 +44,10 @@ case "$cmd" in
     ;;
   pitch)
     deg="${3:?}"
-    rad="$(python3 -c "import math; print(math.radians(float('${deg}')))")"
-    docker exec px4-noetic-sim-ros gz joint -m "iris_${id}" -j vio_cam_pitch --pos-t0 "${rad}"
-    exit $?
+    # Camera look is the SDF nested pose (CATSWARM_VIO_PITCH at Start Sim).
+    # gz joint --pos-t on vio_cam_pitch applies unlimited-effort PID and
+    # collapses iris to the origin (the drone vanishes from the GUI).
+    exit 0
     ;;
   *)
     echo "usage: $0 start <id> <python> <schurvins> <calib> <options> | stop <id> | pitch <id> <deg>" >&2

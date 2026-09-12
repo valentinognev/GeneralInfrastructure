@@ -10,6 +10,8 @@ from inject_iris_sensors import (  # noqa: E402
     MOCKUP_PLUGIN_SO,
     inject,
     resolve_of_mode,
+    resolve_vio_pitch,
+    vio_cam_pose_xyzrpy,
 )
 
 BARE_IRIS = """<?xml version='1.0'?>
@@ -128,4 +130,54 @@ def test_inject_adds_vio_camera_and_keeps_of_lidar(tmp_path: Path):
     assert MOCKUP_PLUGIN_SO in text
     inject(sdf)
     assert sdf.read_text(encoding="utf-8").count('name="vio_cam_pitch"') == 1
+
+
+def test_vio_cam_spawn_pose_looks_down_by_default():
+    import math
+
+    assert resolve_vio_pitch() == -90.0
+    pose = vio_cam_pose_xyzrpy(-90)
+    assert pose.startswith("0.10 0 0 0 ")
+    assert abs(float(pose.split()[4]) - math.pi / 2) < 1e-6
+
+
+def test_vio_cam_spawn_pose_forward_at_zero_pitch():
+    assert vio_cam_pose_xyzrpy(0) == "0.10 0 0 0 0.000000 0"
+
+
+def test_inject_bakes_look_down_pose_into_sdf(tmp_path: Path):
+    sdf = _write(tmp_path, BARE_IRIS)
+    inject(sdf)
+    text = sdf.read_text(encoding="utf-8")
+    assert vio_cam_pose_xyzrpy(-90) in text
+    assert "<gravity>false</gravity>" in text
+    assert "<pose>0.10 0 0 0 0 0</pose>" not in text
+
+
+def test_vio_cam_pitch_joint_is_fixed(tmp_path: Path):
+    """revolute + gz joint --pos-t applies unlimited PID and collapses iris to origin."""
+    sdf = _write(tmp_path, BARE_IRIS)
+    inject(sdf)
+    text = sdf.read_text(encoding="utf-8")
+    assert '<joint name="vio_cam_pitch" type="fixed">' in text
+    assert 'type="revolute"' not in text.split('name="vio_cam_pitch"')[1].split("</joint>")[0]
+
+
+def test_inject_zero_pitch_is_body_forward(tmp_path: Path, monkeypatch):
+    monkeypatch.setenv("CATSWARM_VIO_PITCH", "0")
+    sdf = _write(tmp_path, BARE_IRIS)
+    inject(sdf)
+    text = sdf.read_text(encoding="utf-8")
+    assert vio_cam_pose_xyzrpy(0) in text
+
+
+def test_vio_cam_off_skips_camera_keeps_of_lidar(tmp_path: Path, monkeypatch):
+    monkeypatch.setenv("CATSWARM_VIO_CAM", "0")
+    sdf = _write(tmp_path, BARE_IRIS)
+    inject(sdf)
+    text = sdf.read_text(encoding="utf-8")
+    assert 'name="vio_cam_pitch"' not in text
+    assert 'name="vio_cam"' not in text
+    assert 'name="lidar_joint"' in text
+    assert MOCKUP_PLUGIN_SO in text
 

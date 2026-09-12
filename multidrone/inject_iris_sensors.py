@@ -18,6 +18,7 @@ inline CatSwarm lidar (2 cm min, matching real air) or legacy ``model://lidar``.
 """
 from __future__ import annotations
 
+import math
 import os
 import sys
 from pathlib import Path
@@ -98,11 +99,39 @@ MOCKUP_SNIPPET = f"""
     </plugin>
 """
 
-VIO_CAM_SNIPPET = """
+def vio_cam_pose_xyzrpy(pitch_deg: float) -> str:
+    """Nested vio_cam pose: 10 cm body-forward, Gazebo Z-up pitch = −FRD deg."""
+    rad = math.radians(-float(pitch_deg))
+    if abs(rad) < 1e-12:
+        rad = 0.0
+    return f"0.10 0 0 0 {rad:.6f} 0"
+
+
+def resolve_vio_pitch(value: str | None = None) -> float:
+    raw = value if value is not None else os.environ.get("CATSWARM_VIO_PITCH", "-90")
+    if str(raw).strip() == "":
+        return -90.0
+    try:
+        v = float(raw)
+    except (TypeError, ValueError) as exc:
+        raise SystemExit(
+            f"inject_iris_sensors: CATSWARM_VIO_PITCH {raw!r} must be in [-90, 0]"
+        ) from exc
+    if v < -90.0 or v > 0.0:
+        raise SystemExit(
+            f"inject_iris_sensors: CATSWARM_VIO_PITCH {v} must be in [-90, 0]"
+        )
+    return v
+
+
+def vio_cam_snippet(pitch_deg: float | None = None) -> str:
+    pose = vio_cam_pose_xyzrpy(resolve_vio_pitch() if pitch_deg is None else float(pitch_deg))
+    return f"""
     <!-- CatSwarm: VIO mono camera -->
     <model name="vio_cam">
-      <pose>0.10 0 0 0 0 0</pose>
+      <pose>{pose}</pose>
       <link name="link">
+        <gravity>false</gravity>
         <inertial>
           <mass>0.01</mass>
           <inertia>
@@ -129,18 +158,16 @@ VIO_CAM_SNIPPET = """
         </sensor>
       </link>
     </model>
-    <joint name="vio_cam_pitch" type="revolute">
+    <joint name="vio_cam_pitch" type="fixed">
       <parent>base_link</parent>
       <child>vio_cam::link</child>
-      <axis>
-        <xyz>0 1 0</xyz>
-        <limit>
-          <lower>-1.5708</lower>
-          <upper>1.5708</upper>
-        </limit>
-      </axis>
     </joint>
 """
+
+
+def resolve_vio_cam(value: str | None = None) -> bool:
+    raw = value if value is not None else os.environ.get("CATSWARM_VIO_CAM", "1")
+    return str(raw).strip().lower() not in ("0", "false", "off", "no")
 
 
 def resolve_of_mode(of_mode: str | None = None) -> str:
@@ -165,8 +192,8 @@ def inject(sdf_path: Path, of_mode: str | None = None) -> None:
         additions.append(PX4FLOW_SNIPPET)
     if mode in ("mockup", "both") and MOCKUP_PLUGIN_SO not in text:
         additions.append(MOCKUP_SNIPPET)
-    if 'name="vio_cam_pitch"' not in text:
-        additions.append(VIO_CAM_SNIPPET)
+    if resolve_vio_cam() and 'name="vio_cam_pitch"' not in text:
+        additions.append(vio_cam_snippet())
     if not additions:
         return
 

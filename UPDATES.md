@@ -2,6 +2,31 @@
 
 This file documents the development progress and changes made to the `CatSwarm/general_infrastructure` project by the AI agent.
 
+## [2026-09-12] VIO Apply gz joint collapsed iris to origin
+- `gz joint --pos-t` on revolute `vio_cam_pitch` (unlimited effort) yanked the parent iris: live D3 went from (0, 6, 1.1) to (0, 0, 0) with rotors stacked at origin; D1/D2 already vanished the same way after Apply.
+- `sim_vio.sh pitch` is a no-op. `vio_cam_pitch` is `fixed`. Look-down remains the nested SDF pose (`CATSWARM_VIO_PITCH`). Restart SITL to restore vanished models (cannot un-collapse in place). Pair OB **1.48.12** (Apply does not call pitch).
+
+## [2026-09-12] VIO on no longer flips iris at spawn
+- Cause: Start Sim `sim_vio.sh pitch` set world pose of nested `iris_N::vio_cam` (`gz model`); the joint yanked the iris over.
+- Pitch at spawn is the SDF nested pose (`CATSWARM_VIO_PITCH`, default −90 → Gazebo +π/2). `runSimNoeticMulti.sh --vio-pitch`. Camera link `gravity` false.
+- `sim_vio.sh pitch` is joint-only (no nested `gz model`).
+
+## [2026-09-12] sim_vio.sh pitch: fail empty gz + pose nested cam
+- `gz joint` without `--verbose` exits 0 for a missing `iris_*` (no subscribers); Start Sim treated pitch as applied while the camera was still forward.
+- Pitch now uses `--verbose` and fails on `No subscribers`. After joint cmd, poses nested `iris_N::vio_cam` (lever 0.10 m, Gazebo pitch = −FRD deg) because joint PID does not hold look-down.
+
+## [2026-09-12] Sim VIO pitch: real gz flag + Z-up sign
+- `gz joint --pos-t0` is invalid on Gazebo 11 and still exits 0, so VIO Apply never moved `vio_cam_pitch` (T_B_C said −90 down, camera stayed forward → stuck Initializing).
+- Flag is `--pos-t`. FRD −90° maps to Gazebo **+π/2** (iris `base_link` is Z-up; −π/2 looks at the sky). Pitch fails Apply if gz prints `Invalid arguments`.
+
+## [2026-09-11] CATSWARM_VIO_CAM / --vio-cam gates Gazebo VIO camera
+- `runSimNoeticMulti.sh --vio-cam=0|1` (default 1) exports `CATSWARM_VIO_CAM` into the container.
+- `inject_iris_sensors.py` skips `vio_cam` when off; lidar/OF unchanged.
+- `sitl_multiple_run.sh` skips `vio_cam_tcp` when `CATSWARM_VIO_CAM=0`.
+
+## [2026-09-11] VIO pitch joint signed degrees (−90 look down)
+- `pitch_deg_to_joint_rad` / `sim_vio.sh pitch` pass signed degrees through to `gz joint --pos-t0` (0 = forward, −90 = −π/2 down). Tests lock −90, not +90.
+
 ## [2026-09-11] generate() layout test locks spec contract
 - Nested `test_generate_layout_mocked`: `alt_amsl≈200`, world spherical coords, OSM `buildings.dae` + SDF link. `generate()` unchanged. Nested Dockerfiles 1.8.2.
 

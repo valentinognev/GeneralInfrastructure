@@ -10,11 +10,17 @@ def sim_vio_skip_must_not_fail() -> bool:
 
 
 def pitch_deg_to_joint_rad(pitch_deg: float) -> float:
-    return math.radians(float(pitch_deg))
+    """FRD signed pitch (0=forward, −90=down) → Gazebo Z-up joint radians.
+
+    iris ``base_link`` is Z-up; +Y rotation positive looks down, so FRD −90°
+    is ``+π/2`` (not ``−π/2``, which points the camera at the sky).
+    """
+    return math.radians(-float(pitch_deg))
 
 
 def gz_pitch_cmd(model: str, joint: str, rad: float) -> list[str]:
-    return ["gz", "joint", "-m", model, "-j", joint, "--pos-t0", str(rad)]
+    # Never ``gz joint --pos-t``: unlimited-effort PID yanks iris to the origin.
+    return []
 
 
 def iris_model_name(drone_id: int) -> str:

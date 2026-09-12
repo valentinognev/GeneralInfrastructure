@@ -17,6 +17,9 @@ def test_runsim_help_and_world_flag():
     import subprocess
     out = subprocess.check_output(["bash", str(RUN), "--help"], text=True)
     assert "--world" in out
+    assert "--vio-cam" in out
+    assert "--vio-pitch" in out
+    assert "CATSWARM_VIO_PITCH" in RUN.read_text()
 
 
 def test_runsim_missing_world_exits_before_docker(tmp_path):

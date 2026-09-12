@@ -45,7 +45,10 @@ def serve_frames(drone_id: int, *, bind_fn, gray_iter) -> None:
     current = None
     try:
         while True:
-            conn, _addr = srv.accept()
+            try:
+                conn, _addr = srv.accept()
+            except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError, OSError):
+                continue
             try:
                 while True:
                     if current is None:
@@ -67,6 +70,7 @@ def serve_frames(drone_id: int, *, bind_fn, gray_iter) -> None:
 def _default_bind(addr):
     srv = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    srv.settimeout(None)
     srv.bind(addr)
     srv.listen(1)
     return srv

@@ -1,5 +1,6 @@
 from pathlib import Path
 from types import SimpleNamespace
+import socket
 import struct
 import sys
 
@@ -8,6 +9,7 @@ GI = ROOT.parent
 sys.path.insert(0, str(ROOT))
 
 from vio_cam_tcp import (  # noqa: E402
+    _default_bind,
     _image_to_gray,
     camera_tcp_port,
     pack_svof,
@@ -67,6 +69,51 @@ def test_serve_frames_binds_and_sends_svof():
     assert bytes(sent) == want
 
 
+def test_default_bind_clears_socket_timeout():
+    prev = socket.getdefaulttimeout()
+    socket.setdefaulttimeout(0.05)
+    try:
+        srv = _default_bind(("127.0.0.1", 0))
+        try:
+            assert srv.gettimeout() is None
+        finally:
+            srv.close()
+    finally:
+        socket.setdefaulttimeout(prev)
+
+
+def test_serve_frames_retries_after_accept_timeout():
+    sent = bytearray()
+
+    class _Conn:
+        def sendall(self, data):
+            sent.extend(data)
+
+        def close(self):
+            pass
+
+    n = {"n": 0}
+
+    class _Srv:
+        def accept(self):
+            n["n"] += 1
+            if n["n"] == 1:
+                raise socket.timeout("timed out")
+            return _Conn(), ("127.0.0.1", 9)
+
+        def close(self):
+            pass
+
+        def settimeout(self, _t):
+            pass
+
+    gray = b"abcd"
+    serve_frames(1, bind_fn=lambda addr: _Srv(), gray_iter=[(2, 2, 9, gray)])
+    want = struct.pack("<4sHHQI", b"SVOF", 2, 2, 9, 4) + gray
+    assert bytes(sent) == want
+    assert n["n"] == 2
+
+
 def test_serve_frames_probe_then_second_client_receives_svof():
     """Supervisor TCP probe (connect+close) must not consume the listen socket."""
     sent = bytearray()
@@ -111,12 +158,32 @@ def test_sitl_ros1_starts_roscore_and_gazebo_api_plugin():
     assert "roscore" in text
 
 
+def test_sitl_exports_gazebo11_plugin_dir_for_camera():
+    text = (ROOT / "sitl_multiple_run.sh").read_text()
+    assert "gazebo-11/plugins" in text
+    assert "LD_LIBRARY_PATH" in text
+
+
+
+
+def test_sitl_gates_vio_cam_tcp_on_env():
+    text = (ROOT / "sitl_multiple_run.sh").read_text()
+    start = text[text.index("VIO_CAM_TCP=") :]
+    assert "CATSWARM_VIO_CAM" in start
+    assert 'python3 "$VIO_CAM_TCP"' in start
+    assert start.index("CATSWARM_VIO_CAM") < start.index('python3 "$VIO_CAM_TCP"')
+
+
 def test_run_sim_mounts_vio_cam_tcp():
     text = (GI / "runSimNoeticMulti.sh").read_text()
     assert (
         "multidrone/vio_cam_tcp.py:/home/valentin/PX4-Autopilot/Tools/simulation/vio_cam_tcp.py"
         in text
     )
+    assert "CATSWARM_VIO_CAM" in text
+    assert "CATSWARM_VIO_PITCH" in text
+    assert "--vio-cam" in text
+    assert "--vio-pitch" in text
 
 
 def test_image_to_gray_uses_row_step():

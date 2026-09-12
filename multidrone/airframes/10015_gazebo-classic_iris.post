@@ -9,6 +9,15 @@ mavlink stream -r 50 -s OPTICAL_FLOW_RAD -u $udp_gcs_port_local
 mavlink stream -r 20 -s DISTANCE_SENSOR -u $udp_offboard_port_local
 mavlink stream -r 50 -s OPTICAL_FLOW_RAD -u $udp_offboard_port_local
 
+# Dedicated VIO IMU for host svo_pi. Do not share onboard 14540+i with HA
+# (sticky partner). Remote 14640+instance, PX4 local 14680+instance (= remote+40).
+udp_vio_port_local=$((14680 + px4_instance))
+udp_vio_port_remote=$((14640 + px4_instance))
+mavlink start -x -u $udp_vio_port_local -r 4000000 -f -m onboard -o $udp_vio_port_remote
+mavlink stream -r 100 -s HIGHRES_IMU -u $udp_vio_port_local
+mavlink stream -r 10 -s GLOBAL_POSITION_INT -u $udp_vio_port_local
+mavlink stream -r 20 -s LOCAL_POSITION_NED -u $udp_vio_port_local
+
 # GPS fusion ON explicitly: PX4 autosaves PARAM_SET, so an ObservationBoard "NO FIX"
 # (EKF2_GPS_CTRL=0 / SYS_HAS_GPS=0) would otherwise survive a SITL restart. These must
 # stay identical to _GPS_ON in hardware_adapter/python/gps_quality_override.py.
