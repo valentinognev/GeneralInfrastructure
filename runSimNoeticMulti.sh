@@ -56,6 +56,11 @@ while [[ $# -gt 0 ]]; do
             echo "  --num=N, --num N         Number of drones to spawn (default: 1)"
             echo "  --file=PATH, --file PATH Path to positions file (default: multidrone/positions.txt)"
             echo ""
+            echo "Environment:"
+            echo "  PX4_VIDEO_HOST_IP        RTP destination IP (default: 10.42.0.11)"
+            echo "  CATSWARM_HIL_CAM_PITCH   Camera pitch down, degrees (default: 45)"
+            echo "  CATSWARM_GZCLIENT        Set to 0 to skip gzclient (default: 1)"
+            echo ""
             exit 0
             ;;
         --kill)
@@ -136,18 +141,36 @@ else
     )
 fi
 
+# CatSwarm HIL: camera-enabled iris template and detectable ground props.
+DOCKER_VOLUMES+=(
+    --volume="${SCRIPT_DIR}/multidrone/iris.sdf.jinja:/home/valentin/PX4-Autopilot/Tools/simulation/gazebo-classic/sitl_gazebo-classic/models/iris/iris.sdf.jinja:ro"
+    --volume="${SCRIPT_DIR}/multidrone/models:/home/valentin/catswarm_models:ro"
+)
+
 # Add XAUTHORITY volume only if file exists
 if [ -f "$XAUTH_FILE" ]; then
     DOCKER_VOLUMES+=(--volume="${XAUTH_FILE}:${XAUTH_FILE}:ro")
 fi
 
-# Run docker container with the simulation command
-docker run -it --net=host \
+# Gazebo master must stay on loopback; --net=host otherwise publicizes 10.42.0.1 and gzclient crashes gzserver.
+# Allocate a TTY only when stdin is a real terminal; a fake TTY injects NUL and aborts gzserver.
+DOCKER_TTY=(-i)
+if [ -t 0 ]; then
+    DOCKER_TTY=(-it)
+fi
+
+docker run "${DOCKER_TTY[@]}" --net=host \
            --cap-drop=all \
            --privileged \
            --env="DISPLAY=$DISPLAY" \
            --env="QT_X11_NO_MITSHM=1" \
            --env="XAUTHORITY=${XAUTH_FILE}" \
+           --env="PX4_VIDEO_HOST_IP=${PX4_VIDEO_HOST_IP:-10.42.0.11}" \
+           --env="CATSWARM_HIL_CAM_PITCH=${CATSWARM_HIL_CAM_PITCH:-45}" \
+           --env="CATSWARM_GZCLIENT=${CATSWARM_GZCLIENT:-1}" \
+           --env="GAZEBO_IP=127.0.0.1" \
+           --env="GAZEBO_MASTER_URI=http://127.0.0.1:11345" \
+           --env="LIBGL_ALWAYS_SOFTWARE=1" \
            "${DOCKER_VOLUMES[@]}" \
            --name=${CONTAINER_NAME} \
            ${CONTAINER_NAME} \

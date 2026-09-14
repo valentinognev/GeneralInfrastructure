@@ -36,7 +36,6 @@ function spawn_model() {
 
 	pushd "$working_dir" &>/dev/null
 	echo "starting instance $N in $(pwd)"
-	$build_path/bin/px4 -i $N -d "$build_path/etc" >out.log 2>err.log &
 
 	set --
 	set -- ${@} ${src_path}/Tools/simulation/gazebo-classic/sitl_gazebo-classic/scripts/jinja_gen.py
@@ -45,9 +44,11 @@ function spawn_model() {
 	set -- ${@} --mavlink_tcp_port $((4560+${N}))
 	set -- ${@} --mavlink_udp_port $((14560+${N}))
 	set -- ${@} --mavlink_id $((1+${N}))
-	set -- ${@} --gst_udp_port $((5600+${N}))
+	# 5700+drone_index. N is PX4 instance (1-based); 5600+ is claimed by PX4 gst_udp_port and VIO.
+	set -- ${@} --gst_udp_port $((5700 + ${N} - 1))
 	set -- ${@} --video_uri $((5600+${N}))
 	set -- ${@} --mavlink_cam_udp_port $((14530+${N}))
+	set -- ${@} --override_parameters_json_path /tmp/hil_jinja_override.json
 	set -- ${@} --output-file /tmp/${MODEL}_${N}.sdf
 
 	python3 ${@}
@@ -55,6 +56,8 @@ function spawn_model() {
 	echo "Spawning ${MODEL}_${N} at ${X} ${Y} ${Z}"
 
 	gz model --spawn-file=/tmp/${MODEL}_${N}.sdf --model-name=${MODEL}_${N} -x ${X} -y ${Y} -z ${Z}
+
+	$build_path/bin/px4 -i $N -d "$build_path/etc" >out.log 2>err.log &
 
 	popd &>/dev/null
 
@@ -113,6 +116,26 @@ sleep 1
 
 source ${src_path}/Tools/simulation/gazebo-classic/setup_gazebo.bash ${src_path} ${src_path}/build/${target}
 
+CATSWARM_MODELS="/home/valentin/catswarm_models"
+if [ -d "${CATSWARM_MODELS}" ]; then
+	export GAZEBO_MODEL_PATH="${CATSWARM_MODELS}:${GAZEBO_MODEL_PATH}"
+fi
+
+# Positive CATSWARM_HIL_CAM_PITCH (degrees) is nose-down; Gazebo camera +Y pitch looks down.
+HIL_CAM_PITCH_DEG="${CATSWARM_HIL_CAM_PITCH:-45}"
+python3 - <<PY
+import json, math
+path = "${src_path}/Tools/simulation/gazebo-classic/sitl_gazebo-classic/resources/px4_gazebo_jinja_parameters.json"
+try:
+    with open(path) as f:
+        params = json.load(f)
+except (OSError, ValueError):
+    params = {}
+params["hil_cam_pitch_rad"] = math.radians(float("${HIL_CAM_PITCH_DEG}"))
+with open("/tmp/hil_jinja_override.json", "w") as f:
+    json.dump(params, f)
+PY
+
 # To use gazebo_ros ROS2 plugins
 if [[ -n "$ROS_VERSION" ]] && [ "$ROS_VERSION" == "2" ]; then
 	ros_args="-s libgazebo_ros_init.so -s libgazebo_ros_factory.so"
@@ -121,8 +144,13 @@ else
 fi
 
 echo "Starting gazebo"
-gzserver ${src_path}/Tools/simulation/gazebo-classic/sitl_gazebo-classic/worlds/${world}.world --verbose $ros_args &
-sleep 5
+gzserver ${src_path}/Tools/simulation/gazebo-classic/sitl_gazebo-classic/worlds/${world}.world --verbose $ros_args </dev/null &
+sleep 8
+
+if [ -f "${CATSWARM_MODELS}/hil_target_ground/model.sdf" ]; then
+	echo "Spawning hil_target_ground"
+	gz model --spawn-file="${CATSWARM_MODELS}/hil_target_ground/model.sdf" --model-name=hil_target_ground -x 0 -y 0 -z 0.08
+fi
 
 # Read positions from file if provided
 declare -a positions_x
@@ -205,5 +233,11 @@ else
 fi
 trap "cleanup" SIGINT SIGTERM EXIT
 
-echo "Starting gazebo client"
-gzclient
+sleep 2
+if [ "${CATSWARM_GZCLIENT:-1}" = "0" ]; then
+	echo "Skipping gzclient (CATSWARM_GZCLIENT=0)"
+	wait
+else
+	echo "Starting gazebo client"
+	gzclient
+fi
