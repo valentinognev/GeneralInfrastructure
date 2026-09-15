@@ -1,4 +1,14 @@
 <!-- DO NOT EDIT: Generated from iris.sdf.jinja -->
+{%- set glow_port = gst_udp_port|default(5700)|int %}
+{%- set glow_idx = (glow_port - 5700) % 4 %}
+{%- set glow_mats = ['Gazebo/YellowGlow', 'Gazebo/BlueGlow', 'Gazebo/RedGlow', 'Gazebo/GreenGlow'] %}
+{%- set glow_rs = [1.0, 0.15, 1.0, 0.25] %}
+{%- set glow_gs = [0.85, 0.75, 0.25, 1.0] %}
+{%- set glow_bs = [0.15, 1.0, 0.35, 0.3] %}
+{%- set glow_mat = glow_mats[glow_idx] %}
+{%- set glow_r = glow_rs[glow_idx] %}
+{%- set glow_g = glow_gs[glow_idx] %}
+{%- set glow_b = glow_bs[glow_idx] %}
 <sdf version='1.6'>
   <model name='iris'>
     <link name='base_link'>
@@ -47,10 +57,12 @@
             <name>Gazebo/DarkGrey</name>
             <uri>file://media/materials/scripts/gazebo.material</uri>
           </script>
+          <emissive>{{ glow_r }} {{ glow_g }} {{ glow_b }} 1</emissive>
         </material>
       </visual>
       <gravity>1</gravity>
       <velocity_decay/>
+{%- if gst_udp_port is defined and gst_udp_port|int == 5700 %}
       <sensor name="hil_camera" type="camera">
         <pose>0.12 0 -0.08 0 {{ hil_cam_pitch_rad | default(0.785398163397) }} 0</pose>
         <camera>
@@ -66,7 +78,8 @@
           </clip>
         </camera>
         <always_on>1</always_on>
-        <update_rate>30</update_rate>
+        <!-- 25 Hz, iris_1 only. 30 Hz × N cameras + llvmpipe gzclient starved lockstep. Watch gz stats. -->
+        <update_rate>25</update_rate>
         <visualize>false</visualize>
         <plugin name="GstCameraPlugin" filename="libgazebo_gst_camera_plugin.so">
           <robotNamespace></robotNamespace>
@@ -74,7 +87,72 @@
           <udpPort>{{ gst_udp_port }}</udpPort>
         </plugin>
       </sensor>
+{%- endif %}
+      <!-- Operator marker (visual only). Overhead so it does not swallow iris_1's downward camera. -->
+      <visual name="operator_glow_stem">
+        <pose>0 0 0.9 0 0 0</pose>
+        <cast_shadows>false</cast_shadows>
+        <transparency>0.25</transparency>
+        <geometry>
+          <cylinder>
+            <radius>0.04</radius>
+            <length>1.4</length>
+          </cylinder>
+        </geometry>
+        <material>
+          <script>
+            <uri>file://media/materials/scripts/gazebo.material</uri>
+            <name>{{ glow_mat }}</name>
+          </script>
+          <emissive>{{ glow_r }} {{ glow_g }} {{ glow_b }} 1</emissive>
+        </material>
+      </visual>
+      <visual name="operator_glow_core">
+        <pose>0 0 1.75 0 0 0</pose>
+        <cast_shadows>false</cast_shadows>
+        <transparency>0.2</transparency>
+        <geometry>
+          <sphere>
+            <radius>0.38</radius>
+          </sphere>
+        </geometry>
+        <material>
+          <script>
+            <uri>file://media/materials/scripts/gazebo.material</uri>
+            <name>{{ glow_mat }}</name>
+          </script>
+          <emissive>{{ glow_r }} {{ glow_g }} {{ glow_b }} 1</emissive>
+        </material>
+      </visual>
+      <visual name="operator_glow_halo">
+        <pose>0 0 1.75 0 0 0</pose>
+        <cast_shadows>false</cast_shadows>
+        <transparency>0.78</transparency>
+        <geometry>
+          <sphere>
+            <radius>1.15</radius>
+          </sphere>
+        </geometry>
+        <material>
+          <ambient>{{ glow_r }} {{ glow_g }} {{ glow_b }} 0.25</ambient>
+          <diffuse>{{ glow_r }} {{ glow_g }} {{ glow_b }} 0.25</diffuse>
+          <emissive>{{ glow_r }} {{ glow_g }} {{ glow_b }} 1</emissive>
+          <specular>0 0 0 1</specular>
+        </material>
+      </visual>
     </link>
+    <light name="operator_glow_light" type="point">
+      <pose>0 0 1.75 0 0 0</pose>
+      <diffuse>{{ glow_r }} {{ glow_g }} {{ glow_b }} 1</diffuse>
+      <specular>0.15 0.15 0.15 1</specular>
+      <attenuation>
+        <range>8</range>
+        <constant>0.5</constant>
+        <linear>0.15</linear>
+        <quadratic>0.03</quadratic>
+      </attenuation>
+      <cast_shadows>false</cast_shadows>
+    </light>
     <link name='/imu_link'>
       <pose>0 0 0.02 0 0 0</pose>
       <inertial>
@@ -449,6 +527,61 @@
     <joint name='gps0_joint' type='fixed'>
       <child>gps0::link</child>
       <parent>base_link</parent>
+    </joint>
+    <!-- Downward rangefinder for DISTANCE_SENSOR. Nested name *sf10a* is how
+         gazebo_mavlink_interface finds it. No collision — the stock sf10a box
+         sat under the hull and snagged the pad (shiver, no lift). -->
+    <model name="sf10a">
+      <pose>0 0 -0.08 0 0 0</pose>
+      <link name="link">
+        <gravity>0</gravity>
+        <inertial>
+          <mass>1e-6</mass>
+          <inertia>
+            <ixx>1e-9</ixx>
+            <ixy>0</ixy>
+            <ixz>0</ixz>
+            <iyy>1e-9</iyy>
+            <iyz>0</iyz>
+            <izz>1e-9</izz>
+          </inertia>
+        </inertial>
+        <sensor name="sf10a" type="ray">
+          <visualize>false</visualize>
+          <always_on>1</always_on>
+          <update_rate>20</update_rate>
+          <pose>0 0 0 0 1.5707963259 0</pose>
+          <ray>
+            <scan>
+              <horizontal>
+                <samples>1</samples>
+                <resolution>1</resolution>
+                <min_angle>0</min_angle>
+                <max_angle>0</max_angle>
+              </horizontal>
+            </scan>
+            <range>
+              <min>0.06</min>
+              <max>35</max>
+              <resolution>0.01</resolution>
+            </range>
+            <noise>
+              <type>gaussian</type>
+              <mean>0.0</mean>
+              <stddev>0.01</stddev>
+            </noise>
+          </ray>
+          <plugin name="LaserPlugin" filename="libgazebo_lidar_plugin.so">
+            <robotNamespace></robotNamespace>
+            <min_distance>0.1</min_distance>
+            <max_distance>25.0</max_distance>
+          </plugin>
+        </sensor>
+      </link>
+    </model>
+    <joint name="sf10a_joint" type="fixed">
+      <parent>base_link</parent>
+      <child>sf10a::link</child>
     </joint>
     <plugin name='groundtruth_plugin' filename='libgazebo_groundtruth_plugin.so'>
       <robotNamespace/>

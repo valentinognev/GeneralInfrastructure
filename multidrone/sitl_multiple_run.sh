@@ -18,9 +18,27 @@ function spawn_model() {
 	X=$3
 	Y=$4
 	Z=$5
-	X=${X:=0.0}
-	Y=${Y:=$((3*${N}))}
-	Z=${Z:=0.83}
+	if [ -z "$3" ]; then
+		if [ "${world}" = "hil_city" ]; then
+			# Open pad just north of the city (last E–W road is y=100).
+			X=-15
+			Y=$(awk -v n="$N" 'BEGIN { printf "%.1f", 108 + 4*(n-1) }')
+		else
+			X=0.0
+			Y=$((3*${N}))
+		fi
+	else
+		X=${X:=0.0}
+		Y=${Y:=$((3*${N}))}
+	fi
+	if [ -z "${Z}" ]; then
+		# city_terrain_1 is a 500×500 plane posed at z=5.01; empty-world ground is z=0.
+		if [ "${world}" = "hil_city" ]; then
+			Z=5.35
+		else
+			Z=0.83
+		fi
+	fi
 
 	SUPPORTED_MODELS=("iris" "plane" "standard_vtol" "rover" "r1_rover" "typhoon_h480")
 	if [[ " ${SUPPORTED_MODELS[*]} " != *"$MODEL"* ]];
@@ -87,7 +105,14 @@ do
 done
 
 num_vehicles=${NUM_VEHICLES:=3}
-world=${WORLD:=empty}
+world=${WORLD:-${CATSWARM_WORLD:-}}
+if [ -z "${world}" ]; then
+	if [ -f "/home/valentin/catswarm_city/worlds/hil_city.world" ]; then
+		world=hil_city
+	else
+		world=empty
+	fi
+fi
 target=${TARGET:=px4_sitl_default}
 vehicle_model=${VEHICLE_MODEL:="iris"}
 export PX4_SIM_MODEL=gazebo-classic_${vehicle_model}
@@ -117,9 +142,24 @@ sleep 1
 source ${src_path}/Tools/simulation/gazebo-classic/setup_gazebo.bash ${src_path} ${src_path}/build/${target}
 
 CATSWARM_MODELS="/home/valentin/catswarm_models"
+CATSWARM_CITY="/home/valentin/catswarm_city"
+if [ -d "${CATSWARM_CITY}/models" ]; then
+	export GAZEBO_MODEL_PATH="${CATSWARM_CITY}/models:${GAZEBO_MODEL_PATH}"
+fi
 if [ -d "${CATSWARM_MODELS}" ]; then
 	export GAZEBO_MODEL_PATH="${CATSWARM_MODELS}:${GAZEBO_MODEL_PATH}"
 fi
+# Keep Gazebo Classic media (rtshaderlib) first; citysim.material is extra.
+if [ -d "${CATSWARM_CITY}/share" ]; then
+	export GAZEBO_RESOURCE_PATH="${GAZEBO_RESOURCE_PATH}:${CATSWARM_CITY}/share"
+fi
+for gz_share in /usr/share/gazebo-11 /usr/share/gazebo; do
+	if [ -d "${gz_share}" ]; then
+		export GAZEBO_RESOURCE_PATH="${gz_share}:${GAZEBO_RESOURCE_PATH}"
+	fi
+done
+# Never block world load on models.gazebosim.org (often unreachable).
+export GAZEBO_MODEL_DATABASE_URI=
 
 # Positive CATSWARM_HIL_CAM_PITCH (degrees) is nose-down; Gazebo camera +Y pitch looks down.
 HIL_CAM_PITCH_DEG="${CATSWARM_HIL_CAM_PITCH:-45}"
@@ -143,13 +183,67 @@ else
 	ros_args=""
 fi
 
-echo "Starting gazebo"
-gzserver ${src_path}/Tools/simulation/gazebo-classic/sitl_gazebo-classic/worlds/${world}.world --verbose $ros_args </dev/null &
-sleep 8
+echo "Starting gazebo world=${world}"
+CITY_WORLD="${CATSWARM_CITY}/worlds/${world}.world"
+PX4_WORLD="${src_path}/Tools/simulation/gazebo-classic/sitl_gazebo-classic/worlds/${world}.world"
+if [ -f "${CITY_WORLD}" ]; then
+	WORLD_FILE="${CITY_WORLD}"
+else
+	WORLD_FILE="${PX4_WORLD}"
+fi
+gzserver ${WORLD_FILE} --verbose $ros_args </dev/null &
+# Gazebo 11 has no `gz model --list`. Wait until a world model answers.
+ready_model="ground_plane"
+if [ "${world}" = "hil_city" ]; then
+	ready_model="city_terrain_1"
+fi
+for i in $(seq 1 180); do
+	if gz model -m "${ready_model}" -i >/dev/null 2>&1; then
+		echo "gzserver ready after ${i}s (model ${ready_model})"
+		break
+	fi
+	sleep 1
+	if [ $i -eq 180 ]; then
+		echo "WARN: gzserver did not publish ${ready_model} after 180s"
+	fi
+done
 
-if [ -f "${CATSWARM_MODELS}/hil_target_ground/model.sdf" ]; then
-	echo "Spawning hil_target_ground"
-	gz model --spawn-file="${CATSWARM_MODELS}/hil_target_ground/model.sdf" --model-name=hil_target_ground -x 0 -y 0 -z 0.08
+# Extra 3D people near the iris line. hil_city already has buildings/actors/Prius;
+# we still add a few props in front of the default spawn for the Hailo camera.
+spawn_static() {
+	local sdf="$1" name="$2" x="$3" y="$4" z="$5" yaw="${6:-0}"
+	if [ ! -f "${sdf}" ]; then
+		echo "WARN: missing ${sdf}"
+		return 0
+	fi
+	echo "Spawning ${name} at ${x} ${y} ${z}"
+	gz model --spawn-file="${sdf}" --model-name="${name}" -x "${x}" -y "${y}" -z "${z}" -Y "${yaw}" || true
+}
+
+if [ "${world}" = "hil_city" ]; then
+	PERSON_SDF="${CATSWARM_CITY}/models/person_standing/model.sdf"
+	WALK_SDF="${CATSWARM_CITY}/models/person_walking/model.sdf"
+	# Props a few metres east of the north-field spawn (iris camera looks +X).
+	spawn_static "${PERSON_SDF}" hil_person_1  -10.0  110.0  5.01  1.57
+	spawn_static "${PERSON_SDF}" hil_person_2   -8.0  107.0  5.01  0
+	spawn_static "${WALK_SDF}"   hil_person_3   -9.0  114.5  5.01  3.14
+	spawn_static "${PERSON_SDF}" hil_person_4   -6.5  112.0  5.01  -0.7
+else
+	PERSON_SDF="${CATSWARM_MODELS}/person_standing/model.sdf"
+	WALK_SDF="${CATSWARM_MODELS}/person_walking/model.sdf"
+	CAR_SDF="${CATSWARM_MODELS}/pickup/model.sdf"
+
+	spawn_static "${PERSON_SDF}" hil_person_1  3.5  0.5  0  1.57
+	spawn_static "${PERSON_SDF}" hil_person_2  4.0  3.0  0  0
+	spawn_static "${WALK_SDF}"   hil_person_3  3.5  6.0  0  3.14
+	spawn_static "${PERSON_SDF}" hil_person_4  4.0  9.0  0  -0.7
+	spawn_static "${WALK_SDF}"   hil_person_5  6.0  1.5  0  1.2
+	spawn_static "${PERSON_SDF}" hil_person_6  6.5  7.5  0  2.4
+
+	spawn_static "${CAR_SDF}" hil_car_1  8.0  0.0  0  1.57
+	spawn_static "${CAR_SDF}" hil_car_2  8.0  4.5  0  1.57
+	spawn_static "${CAR_SDF}" hil_car_3  8.0  9.0  0  1.57
+	spawn_static "${CAR_SDF}" hil_car_4 -5.0  4.5  0  -1.57
 fi
 
 # Read positions from file if provided
@@ -168,15 +262,30 @@ if [ -n "${POSITIONS_FILE}" ]; then
 		[[ -z "$x" || "$x" =~ ^# ]] && continue
 		positions_x[$line_num]=$x
 		positions_y[$line_num]=$y
-		# Use provided Z if available, otherwise default to 0.83
+		# Use provided Z if available, otherwise world default (city ground is z=5.01).
 		if [ -n "$z" ] && [ "$z" != "" ]; then
 			positions_z[$line_num]=$z
+		elif [ "${world}" = "hil_city" ]; then
+			positions_z[$line_num]=5.35
 		else
-			positions_z[$line_num]=0.83  # Default Z to 0.83 if not provided
+			positions_z[$line_num]=0.83
 		fi
 		line_num=$((line_num + 1))
 	done < "${POSITIONS_FILE}"
 	echo "Loaded ${#positions_x[@]} positions from file"
+	# Parking-lot / origin XY (0,0 / 0,3 / …) is inside shops. Nudge onto the north field.
+	if [ "${world}" = "hil_city" ] && [ ${#positions_x[@]} -gt 0 ]; then
+		first_x="${positions_x[0]}"
+		first_y="${positions_y[0]}"
+		awk_origin='BEGIN { x="'"${first_x}"'"; y="'"${first_y}"'"; if (x+0 >= -8 && x+0 <= 8 && y+0 >= -20 && y+0 <= 20) exit 0; exit 1 }'
+		if awk "${awk_origin}"; then
+			echo "Shifting origin spawn onto open field north of the city (-15, 108)"
+			for i in "${!positions_x[@]}"; do
+				positions_x[$i]=$(awk -v x="${positions_x[$i]}" 'BEGIN { printf "%.3f", x-15 }')
+				positions_y[$i]=$(awk -v y="${positions_y[$i]}" 'BEGIN { printf "%.3f", y+108 }')
+			done
+		fi
+	fi
 	# Automatically set num_vehicles to number of positions if -n was not explicitly provided
 	if [ "$NUM_VEHICLES_SET" = "false" ]; then
 		num_vehicles=${#positions_x[@]}
@@ -239,5 +348,6 @@ if [ "${CATSWARM_GZCLIENT:-1}" = "0" ]; then
 	wait
 else
 	echo "Starting gazebo client"
-	gzclient
+	gzclient &
+	wait
 fi

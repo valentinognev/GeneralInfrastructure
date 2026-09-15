@@ -2,6 +2,10 @@
 
 This file documents the development progress and changes made to the `CatSwarm/general_infrastructure` project by the AI agent.
 
+## [2026-09-14] Optional NVIDIA GL for Gazebo Classic (same image)
+- `runSimNoeticMulti.sh`: `CATSWARM_SIM_GPU=1` → `--gpus all` + PRIME offload on the existing `px4-noetic-sim-ros` image (no rebuild). `=0` is llvmpipe rollback. Unset = auto if `nvidia-smi` works.
+- Tag `px4-noetic-sim-ros:hil-llvmpipe` aliases today’s `latest` for rollback. Doc: `vision_hil/docs/2026-09-14-gpu-gazebo.md`.
+
 ## [2026-07-25] Fix Noble image FG prebuild (no sitl launch)
 - Root cause: `make … flightgear_rascal` always runs `sitl_run.sh`/`fgfs`; `DONT_RUN=1` does not skip FG path.
 - Dockerfile now builds `flightgear_bridge` via ninja only; Rascal launch remains runtime (`fixedwing/runSimFlightGearRascal.sh`).

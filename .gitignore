@@ -83,3 +83,7 @@ config/*
 logs/*
 logs/*.csv
 simplemavlinktest/simpleMavlinkTest
+
+# OSRF citysim download (run multidrone/fetch_hil_city.sh)
+multidrone/.city_cache/
+multidrone/city_assets/
