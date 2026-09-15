@@ -69,8 +69,8 @@ while [[ $# -gt 0 ]]; do
             echo "                           else empty). Run multidrone/fetch_hil_city.sh once."
             echo "  CATSWARM_SIM_GPU         1 = NVIDIA GL in Docker (--gpus all + PRIME offload)."
             echo "                           0 = CPU/llvmpipe (rollback). Unset = auto if nvidia-smi."
-            echo "  CATSWARM_GST_BITRATE     GstCameraPlugin H.264 kbps (default: 3500)."
-            echo "  CATSWARM_GST_SPEED_PRESET x264enc speed-preset (default: 1 = ultrafast)."
+            echo "  CATSWARM_GST_BITRATE     GstCameraPlugin 1080p HEVC kbps (default: 4000)."
+            echo "  CATSWARM_GST_SPEED_PRESET x265enc speed-preset (default: 1 = ultrafast)."
             echo "  LIBGL_ALWAYS_SOFTWARE    Set to 1 only if GPU GL is broken (very slow)"
             echo ""
             exit 0
@@ -163,7 +163,7 @@ DOCKER_VOLUMES+=(
     --volume="${SCRIPT_DIR}/multidrone/iris.sdf.jinja:/home/valentin/PX4-Autopilot/Tools/simulation/gazebo-classic/sitl_gazebo-classic/models/iris/iris.sdf.jinja:ro"
     --volume="${SCRIPT_DIR}/multidrone/models:/home/valentin/catswarm_models:ro"
 )
-# Overlay patched GstCameraPlugin (720p / ~3500 kbps) when built locally.
+# Overlay patched GstCameraPlugin (1080p HEVC / ~4000 kbps) when built locally.
 GST_CAMERA_PLUGIN="${SCRIPT_DIR}/../vision_hil/host/gst_camera_plugin/libgazebo_gst_camera_plugin.so"
 if [ -f "${GST_CAMERA_PLUGIN}" ]; then
     DOCKER_VOLUMES+=(
@@ -197,7 +197,7 @@ DOCKER_ENVS=(
     --env="CATSWARM_HIL_CAM_PITCH=${CATSWARM_HIL_CAM_PITCH:-45}"
     --env="CATSWARM_GZCLIENT=${CATSWARM_GZCLIENT:-1}"
     --env="CATSWARM_WORLD=${CATSWARM_WORLD:-hil_city}"
-    --env="CATSWARM_GST_BITRATE=${CATSWARM_GST_BITRATE:-3500}"
+    --env="CATSWARM_GST_BITRATE=${CATSWARM_GST_BITRATE:-4000}"
     --env="CATSWARM_GST_SPEED_PRESET=${CATSWARM_GST_SPEED_PRESET:-1}"
     --env="GAZEBO_MODEL_DATABASE_URI="
     --env="GAZEBO_IP=127.0.0.1"
