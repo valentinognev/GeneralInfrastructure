@@ -69,6 +69,8 @@ while [[ $# -gt 0 ]]; do
             echo "                           else empty). Run multidrone/fetch_hil_city.sh once."
             echo "  CATSWARM_SIM_GPU         1 = NVIDIA GL in Docker (--gpus all + PRIME offload)."
             echo "                           0 = CPU/llvmpipe (rollback). Unset = auto if nvidia-smi."
+            echo "  CATSWARM_GST_BITRATE     GstCameraPlugin H.264 kbps (default: 3500)."
+            echo "  CATSWARM_GST_SPEED_PRESET x264enc speed-preset (default: 1 = ultrafast)."
             echo "  LIBGL_ALWAYS_SOFTWARE    Set to 1 only if GPU GL is broken (very slow)"
             echo ""
             exit 0
@@ -161,6 +163,14 @@ DOCKER_VOLUMES+=(
     --volume="${SCRIPT_DIR}/multidrone/iris.sdf.jinja:/home/valentin/PX4-Autopilot/Tools/simulation/gazebo-classic/sitl_gazebo-classic/models/iris/iris.sdf.jinja:ro"
     --volume="${SCRIPT_DIR}/multidrone/models:/home/valentin/catswarm_models:ro"
 )
+# Overlay patched GstCameraPlugin (720p / ~3500 kbps) when built locally.
+GST_CAMERA_PLUGIN="${SCRIPT_DIR}/../vision_hil/host/gst_camera_plugin/libgazebo_gst_camera_plugin.so"
+if [ -f "${GST_CAMERA_PLUGIN}" ]; then
+    DOCKER_VOLUMES+=(
+        --volume="${GST_CAMERA_PLUGIN}:/home/valentin/PX4-Autopilot/build/px4_sitl_default/build_gazebo-classic/libgazebo_gst_camera_plugin.so:ro"
+    )
+    echo "GstCameraPlugin: bind-mount ${GST_CAMERA_PLUGIN}"
+fi
 if [ -d "${CITY_ASSETS}/models" ]; then
     DOCKER_VOLUMES+=(
         --volume="${CITY_ASSETS}:/home/valentin/catswarm_city:ro"
@@ -187,6 +197,8 @@ DOCKER_ENVS=(
     --env="CATSWARM_HIL_CAM_PITCH=${CATSWARM_HIL_CAM_PITCH:-45}"
     --env="CATSWARM_GZCLIENT=${CATSWARM_GZCLIENT:-1}"
     --env="CATSWARM_WORLD=${CATSWARM_WORLD:-hil_city}"
+    --env="CATSWARM_GST_BITRATE=${CATSWARM_GST_BITRATE:-3500}"
+    --env="CATSWARM_GST_SPEED_PRESET=${CATSWARM_GST_SPEED_PRESET:-1}"
     --env="GAZEBO_MODEL_DATABASE_URI="
     --env="GAZEBO_IP=127.0.0.1"
     --env="GAZEBO_MASTER_URI=http://127.0.0.1:11345"
@@ -228,7 +240,9 @@ fi
 
 # Host HA/SM read this so ObservationBoard LLA matches the Gazebo pad, not the
 # empty-world 3 m parking line. Must run after CATSWARM_WORLD / POSITIONS_FILE.
-write_sitl_spawn_map
+# NUM_DRONES lets it record the same no-XY default the container script uses for
+# drones past the end of the positions file.
+NUM_DRONES="${NUM_DRONES}" write_sitl_spawn_map
 
 docker run "${DOCKER_TTY[@]}" --net=host \
            --cap-drop=all \

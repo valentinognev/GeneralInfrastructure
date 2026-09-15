@@ -68,8 +68,9 @@
         <camera>
           <horizontal_fov>1.047</horizontal_fov>
           <image>
-            <width>640</width>
-            <height>480</height>
+            <!-- 1280x720 for Hailo tiling (iris_1 / gst_udp_port 5700 only). -->
+            <width>1280</width>
+            <height>720</height>
             <format>R8G8B8</format>
           </image>
           <clip>
@@ -78,7 +79,7 @@
           </clip>
         </camera>
         <always_on>1</always_on>
-        <!-- 25 Hz, iris_1 only. 30 Hz × N cameras + llvmpipe gzclient starved lockstep. Watch gz stats. -->
+        <!-- 25 Hz 720p, iris_1 only. Hailo tiling needs this resolution. Watch gz stats. -->
         <update_rate>25</update_rate>
         <visualize>false</visualize>
         <plugin name="GstCameraPlugin" filename="libgazebo_gst_camera_plugin.so">
