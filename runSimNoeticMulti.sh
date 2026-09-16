@@ -71,6 +71,10 @@ while [[ $# -gt 0 ]]; do
             echo "                           0 = CPU/llvmpipe (rollback). Unset = auto if nvidia-smi."
             echo "  CATSWARM_GST_BITRATE     GstCameraPlugin 1080p HEVC kbps (default: 4000)."
             echo "  CATSWARM_GST_SPEED_PRESET x265enc speed-preset (default: 1 = ultrafast)."
+            echo "  DISPLAY                  X11 display for gzclient. Unset or a missing"
+            echo "                           /tmp/.X11-unix/X* socket is replaced with the"
+            echo "                           first live socket (GUI Start Sim often has :0"
+            echo "                           while this laptop session is :1)."
             echo "  LIBGL_ALWAYS_SOFTWARE    Set to 1 only if GPU GL is broken (very slow)"
             echo ""
             exit 0
@@ -113,16 +117,50 @@ trap cleanup_on_exit EXIT INT TERM
 
 # Initial cleanup to ensure clean state
 cleanup_on_exit
+# Gazebo master on a half-dead 11345 makes the next gzserver throw
+# Header is empty / vector::_M_default_append during world parse.
+for _n in $(seq 1 10); do
+    if ! ss -ltn | grep -q ':11345 '; then
+        break
+    fi
+    echo "Waiting for Gazebo master port 11345 to close (${_n}s)"
+    sleep 1
+done
 
-# Setup X11 forwarding
+# GUI Start Sim (and some terminals) pass empty DISPLAY or a stale :0 from the
+# GDM greeter. This laptop's session is :1; only /tmp/.X11-unix/X1 exists.
+# gzclient then prints "Starting gazebo client" and dies: cannot open display.
+_x11_socket_for_display() {
+    local d="${1-}"
+    d="${d#*:}"
+    d="${d%%.*}"
+    echo "/tmp/.X11-unix/X${d}"
+}
+
+if [ -z "$DISPLAY" ] || [ ! -S "$(_x11_socket_for_display "$DISPLAY")" ]; then
+    _first_x=""
+    for _sock in /tmp/.X11-unix/X[0-9]*; do
+        if [ -S "$_sock" ]; then
+            _first_x="$_sock"
+            break
+        fi
+    done
+    if [ -n "$_first_x" ]; then
+        _n="${_first_x##*/X}"
+        echo "Warning: DISPLAY=${DISPLAY:-unset} has no X socket; using :${_n}"
+        export DISPLAY=":${_n}"
+    elif [ -z "$DISPLAY" ]; then
+        echo "Warning: DISPLAY not set and no /tmp/.X11-unix/X*; defaulting to :0"
+        export DISPLAY=:0
+    else
+        echo "Warning: DISPLAY=$DISPLAY has no X socket; gzclient will fail"
+    fi
+fi
+echo "X11: DISPLAY=$DISPLAY sockets=$(echo /tmp/.X11-unix/X[0-9]* 2>/dev/null)"
+
+# Setup X11 forwarding after DISPLAY is a live socket
 xhost + 2>/dev/null || true
 xhost +local:docker 2>/dev/null || true
-
-# Verify display is accessible
-if [ -z "$DISPLAY" ]; then
-    echo "Warning: DISPLAY environment variable is not set"
-    export DISPLAY=:0
-fi
 
 # Set XAUTHORITY if not set
 if [ -z "$XAUTHORITY" ] && [ -f "$HOME/.Xauthority" ]; then
@@ -183,8 +221,10 @@ if [ -f "$XAUTH_FILE" ]; then
 fi
 
 # Gazebo master must stay on loopback; --net=host otherwise publicizes 10.42.0.1 and gzclient crashes gzserver.
-# Allocate a TTY only when stdin is a real terminal; a fake TTY injects NUL and aborts gzserver.
-DOCKER_TTY=(-i)
+# Allocate a TTY only when stdin is a real terminal. docker -i on a pipe
+# (Cursor/agent shells) injects NUL and gzserver aborts:
+# Header is empty / vector::_M_default_append.
+DOCKER_TTY=()
 if [ -t 0 ]; then
     DOCKER_TTY=(-it)
 fi
@@ -232,7 +272,16 @@ if [ "${SIM_GPU}" = "1" ]; then
         --env="__NV_PRIME_RENDER_OFFLOAD=1"
         --env="__GLX_VENDOR_LIBRARY_NAME=nvidia"
         --env="__NV_PRIME_RENDER_OFFLOAD_PROVIDER=NVIDIA-G0"
+        --env="NVIDIA_DRIVER_CAPABILITIES=compute,utility,graphics,display,video"
+        --env="__GL_SYNC_TO_VBLANK=0"
     )
+    # Adaptive PowerMizer parks the Ada GPU at ~5 W / ~600 MHz. gzserver's
+    # 1080p camera + gzclient then run at RTF ~0.5. Prefer Maximum Performance
+    # (mode 1) holds SM ~1740 MHz; live RTF recovered to ~0.85–0.99.
+    if command -v nvidia-settings >/dev/null 2>&1 && [ -n "${DISPLAY:-}" ]; then
+        nvidia-settings -a '[gpu:0]/GPUPowerMizerMode=1' >/dev/null 2>&1 || true
+        echo "NVIDIA PowerMizer=1 (max performance)"
+    fi
     echo "Gazebo GL: NVIDIA GPU (CATSWARM_SIM_GPU). Rollback: CATSWARM_SIM_GPU=0"
 else
     echo "Gazebo GL: CPU/llvmpipe (set CATSWARM_SIM_GPU=1 if nvidia-smi works)"
