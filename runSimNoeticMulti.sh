@@ -71,6 +71,7 @@ while [[ $# -gt 0 ]]; do
             echo "                           0 = CPU/llvmpipe (rollback). Unset = auto if nvidia-smi."
             echo "  CATSWARM_GST_BITRATE     GstCameraPlugin 1080p HEVC kbps (default: 4000)."
             echo "  CATSWARM_GST_SPEED_PRESET x265enc speed-preset (default: 1 = ultrafast)."
+            echo "                           nvh265enc uses bind-mounted libgstnvenc.so when present."
             echo "  DISPLAY                  X11 display for gzclient. Unset or a missing"
             echo "                           /tmp/.X11-unix/X* socket is replaced with the"
             echo "                           first live socket (GUI Start Sim often has :0"
@@ -209,6 +210,14 @@ if [ -f "${GST_CAMERA_PLUGIN}" ]; then
     )
     echo "GstCameraPlugin: bind-mount ${GST_CAMERA_PLUGIN}"
 fi
+# GStreamer 1.16 nvh265enc (compiled in a throwaway container; not in the image).
+GST_NVENC_PLUGIN="${SCRIPT_DIR}/../vision_hil/host/gst_nvenc/plugin"
+if [ -f "${GST_NVENC_PLUGIN}/libgstnvenc.so" ]; then
+    DOCKER_VOLUMES+=(
+        --volume="${GST_NVENC_PLUGIN}:/opt/catswarm/gst:ro"
+    )
+    echo "GstNvenc: GST_PLUGIN_PATH=/opt/catswarm/gst (${GST_NVENC_PLUGIN})"
+fi
 if [ -d "${CITY_ASSETS}/models" ]; then
     DOCKER_VOLUMES+=(
         --volume="${CITY_ASSETS}:/home/valentin/catswarm_city:ro"
@@ -285,6 +294,12 @@ if [ "${SIM_GPU}" = "1" ]; then
     echo "Gazebo GL: NVIDIA GPU (CATSWARM_SIM_GPU). Rollback: CATSWARM_SIM_GPU=0"
 else
     echo "Gazebo GL: CPU/llvmpipe (set CATSWARM_SIM_GPU=1 if nvidia-smi works)"
+fi
+if [ -f "${GST_NVENC_PLUGIN}/libgstnvenc.so" ]; then
+    DOCKER_ENVS+=(
+        --env="GST_PLUGIN_PATH=/opt/catswarm/gst"
+        --env="GST_REGISTRY=/tmp/catswarm-gst-registry.bin"
+    )
 fi
 
 # Host HA/SM read this so ObservationBoard LLA matches the Gazebo pad, not the
