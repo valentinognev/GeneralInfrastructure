@@ -30,3 +30,24 @@ def test_runsim_missing_world_exits_before_docker(tmp_path):
     )
     assert proc.returncode != 0
     assert "generate_real_area.py" in (proc.stdout + proc.stderr)
+
+
+def test_runsim_origin_gate_skips_cylinders():
+    text = RUN.read_text()
+    # The required-origin block must not treat cylinders as a host map.
+    gate = text.split("if [[ \"$WORLD\" != \"empty\"")[1].split("fi")[0]
+    assert "cylinders" in gate
+
+
+def test_runsim_cylinders_is_empty_like_and_has_radius_flag():
+    import subprocess
+    out = subprocess.check_output(["bash", str(RUN), "--help"], text=True)
+    assert "--cylinder-radius" in out
+    text = RUN.read_text()
+    assert "CATSWARM_CYLINDER_RADIUS" in text
+    assert "CATSWARM_WORLD" in text
+    # cylinders must not share the origin.json required-file path with teradyon
+    assert 'WORLD" != "cylinders"' in text or "cylinders" in text
+    sitl = SITL.read_text()
+    assert "spawn_cylinders" in sitl
+    assert "CATSWARM_WORLD" in sitl

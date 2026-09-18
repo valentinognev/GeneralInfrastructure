@@ -12,9 +12,12 @@ from vio_cam_tcp import (  # noqa: E402
     _default_bind,
     _image_to_gray,
     camera_tcp_port,
+    jpeg_preview_port,
     pack_svof,
+    rgb_jpeg_bytes,
     rgb_to_gray,
     serve_frames,
+    serve_latest_jpeg,
 )
 
 
@@ -202,3 +205,59 @@ def test_image_to_gray_uses_row_step():
         data=data,
     )
     assert list(_image_to_gray(msg)) == [76, 149, 29, 10]
+
+
+def test_jpeg_preview_port():
+    from vio_cam_tcp import jpeg_preview_port
+    assert jpeg_preview_port(1) == 5700
+    assert jpeg_preview_port(4) == 5703
+
+
+def test_rgb_jpeg_bytes_uses_encoder():
+    from vio_cam_tcp import rgb_jpeg_bytes
+    rgb = bytes([255, 0, 0, 0, 255, 0])
+    got = rgb_jpeg_bytes(rgb, 2, 1, encode=lambda r, w, h: b"JPEG" + bytes([w, h, len(r)]))
+    assert got == b"JPEG" + bytes([2, 1, 6])
+
+
+def test_serve_latest_jpeg_http():
+    from vio_cam_tcp import serve_latest_jpeg
+    sent = bytearray()
+    bound = []
+
+    class _Conn:
+        def recv(self, n):
+            return b"GET / HTTP/1.0\r\n\r\n"
+
+        def sendall(self, data):
+            sent.extend(data)
+
+        def close(self):
+            pass
+
+    class _Srv:
+        def __init__(self):
+            self._n = 0
+
+        def accept(self):
+            self._n += 1
+            if self._n > 1:
+                raise StopIteration
+            return _Conn(), ("127.0.0.1", 9)
+
+        def close(self):
+            pass
+
+    def bind_fn(addr):
+        bound.append(addr)
+        return _Srv()
+
+    try:
+        serve_latest_jpeg(2, bind_fn=bind_fn, jpeg_iter=[b"\xff\xd8fake"])
+    except StopIteration:
+        pass
+    assert bound == [("0.0.0.0", 5701)]
+    text = bytes(sent)
+    assert text.startswith(b"HTTP/1.0 200 OK")
+    assert b"Content-Type: image/jpeg" in text
+    assert text.endswith(b"\xff\xd8fake")

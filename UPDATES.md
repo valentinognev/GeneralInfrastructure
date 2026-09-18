@@ -2,6 +2,13 @@
 
 This file documents the development progress and changes made to the `CatSwarm/general_infrastructure` project by the AI agent.
 
+## [2026-09-18] Cylinder spawn z=0 (base on ground)
+- `place_cylinders` spawn `-z 0` (was height/2). SDF link pose stays `0 0 0.5` so the 1 m visual sits on world z=0, not floating.
+
+## [2026-09-18] Cylinders world + JPEG 5700
+- `--world cylinders` uses empty.world + four visual cylinders (`--cylinder-radius`, default 10).
+- JPEG HTTP `5700+(id-1)`.
+
 ## [2026-09-12] VIO Apply gz joint collapsed iris to origin
 - `gz joint --pos-t` on revolute `vio_cam_pitch` (unlimited effort) yanked the parent iris: live D3 went from (0, 6, 1.1) to (0, 0, 0) with rotors stacked at origin; D1/D2 already vanished the same way after Apply.
 - `sim_vio.sh pitch` is a no-op. `vio_cam_pitch` is `fixed`. Look-down remains the nested SDF pose (`CATSWARM_VIO_PITCH`). Restart SITL to restore vanished models (cannot un-collapse in place). Pair OB **1.48.12** (Apply does not call pitch).

@@ -116,6 +116,10 @@ done
 
 num_vehicles=${NUM_VEHICLES:=3}
 world=${WORLD:=empty}
+gz_world="$world"
+if [ "$world" = "cylinders" ]; then
+	gz_world="empty"
+fi
 target=${TARGET:=px4_sitl_default}
 vehicle_model=${VEHICLE_MODEL:="iris"}
 export PX4_SIM_MODEL=gazebo-classic_${vehicle_model}
@@ -172,7 +176,7 @@ GAZEBO11_PLUGINS="/usr/lib/x86_64-linux-gnu/gazebo-11/plugins"
 if [ -d "${GAZEBO11_PLUGINS}" ]; then
 	export LD_LIBRARY_PATH="${GAZEBO11_PLUGINS}${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
 fi
-gzserver ${src_path}/Tools/simulation/gazebo-classic/sitl_gazebo-classic/worlds/${world}.world --verbose $ros_args &
+gzserver ${src_path}/Tools/simulation/gazebo-classic/sitl_gazebo-classic/worlds/${gz_world}.world --verbose $ros_args &
 sleep 5
 
 # Read positions from file if provided
@@ -255,6 +259,17 @@ else
 
 fi
 trap "cleanup" SIGINT SIGTERM EXIT
+
+if [ "${CATSWARM_WORLD:-$world}" = "cylinders" ]; then
+	SPAWN_CYL="${SPAWN_CYLINDERS:-$SCRIPT_DIR/spawn_cylinders.py}"
+	if [ -f "$SPAWN_CYL" ]; then
+		python3 "$SPAWN_CYL" \
+			--positions "${POSITIONS_FILE}" \
+			--radius "${CATSWARM_CYLINDER_RADIUS:-10}"
+	else
+		echo "WARNING: $SPAWN_CYL missing — Cylinders world has no markers"
+	fi
+fi
 
 VIO_CAM_TCP="${VIO_CAM_TCP:-/home/valentin/PX4-Autopilot/Tools/simulation/vio_cam_tcp.py}"
 if [ "${CATSWARM_VIO_CAM:-1}" != "0" ] && [ -f "$VIO_CAM_TCP" ]; then

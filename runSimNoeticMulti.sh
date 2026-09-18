@@ -42,6 +42,7 @@ cleanup_on_exit() {
 NUM_DRONES=1
 POSITIONS_FILE="${SCRIPT_DIR}/multidrone/positions.txt"
 WORLD=empty
+CYLINDER_RADIUS=10
 VIO_CAM=1
 VIO_PITCH=-90
 
@@ -59,6 +60,7 @@ while [[ $# -gt 0 ]]; do
             echo "  --num=N, --num N         Number of drones to spawn (default: 1)"
             echo "  --file=PATH, --file PATH Path to positions file (default: multidrone/positions.txt)"
             echo "  --world=NAME, --world NAME  Gazebo world (default: empty). Host maps in Dockerfiles/models/NAME/"
+            echo "  --cylinder-radius=R, --cylinder-radius R  Cylinders disk radius meters (default: 10)"
             echo "  --vio-cam=0|1, --vio-cam 0|1  Inject Gazebo VIO camera + vio_cam_tcp (default: 1)"
             echo "  --vio-pitch=DEG, --vio-pitch DEG  FRD camera pitch degrees [-90, 0] baked into iris SDF (default: -90)"
             echo ""
@@ -93,6 +95,14 @@ while [[ $# -gt 0 ]]; do
             WORLD="$2"
             shift 2
             ;;
+        --cylinder-radius=*)
+            CYLINDER_RADIUS="${1#*=}"
+            shift
+            ;;
+        --cylinder-radius)
+            CYLINDER_RADIUS="$2"
+            shift 2
+            ;;
         --vio-cam=*)
             VIO_CAM="${1#*=}"
             shift
@@ -121,7 +131,7 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
-if [[ "$WORLD" != "empty" ]]; then
+if [[ "$WORLD" != "empty" && "$WORLD" != "cylinders" ]]; then
     HOST_MODELS="${SCRIPT_DIR}/Dockerfiles/models"
     WORLD_FILE="${HOST_MODELS}/${WORLD}/${WORLD}.world"
     ORIGIN_FILE="${HOST_MODELS}/${WORLD}/origin.json"
@@ -172,6 +182,7 @@ if [ "$POSITIONS_FILE" = "$DEFAULT_POSITIONS" ]; then
         --volume="${SCRIPT_DIR}/multidrone/inject_iris_sensors.py:/home/valentin/PX4-Autopilot/Tools/simulation/inject_iris_sensors.py:ro"
         --volume="${SCRIPT_DIR}/multidrone/inject_iris_colors.py:/home/valentin/PX4-Autopilot/Tools/simulation/inject_iris_colors.py:ro"
         --volume="${SCRIPT_DIR}/multidrone/vio_cam_tcp.py:/home/valentin/PX4-Autopilot/Tools/simulation/vio_cam_tcp.py:ro"
+        --volume="${SCRIPT_DIR}/multidrone/spawn_cylinders.py:/home/valentin/PX4-Autopilot/Tools/simulation/gazebo-classic/spawn_cylinders.py:ro"
         --volume="${SCRIPT_DIR}/multidrone/airframes/10015_gazebo-classic_iris.post:/home/valentin/PX4-Autopilot/build/px4_sitl_default/etc/init.d-posix/airframes/10015_gazebo-classic_iris.post:ro"
         --volume="${SCRIPT_DIR}/Dockerfiles/models:/home/valentin/PX4-Autopilot/Tools/simulation/gazebo-classic/sitl_gazebo-classic/models/catswarm_host:ro"
     )
@@ -186,6 +197,7 @@ else
         --volume="${SCRIPT_DIR}/multidrone/inject_iris_sensors.py:/home/valentin/PX4-Autopilot/Tools/simulation/inject_iris_sensors.py:ro"
         --volume="${SCRIPT_DIR}/multidrone/inject_iris_colors.py:/home/valentin/PX4-Autopilot/Tools/simulation/inject_iris_colors.py:ro"
         --volume="${SCRIPT_DIR}/multidrone/vio_cam_tcp.py:/home/valentin/PX4-Autopilot/Tools/simulation/vio_cam_tcp.py:ro"
+        --volume="${SCRIPT_DIR}/multidrone/spawn_cylinders.py:/home/valentin/PX4-Autopilot/Tools/simulation/gazebo-classic/spawn_cylinders.py:ro"
         --volume="${SCRIPT_DIR}/multidrone/airframes/10015_gazebo-classic_iris.post:/home/valentin/PX4-Autopilot/build/px4_sitl_default/etc/init.d-posix/airframes/10015_gazebo-classic_iris.post:ro"
         --volume="${SCRIPT_DIR}/Dockerfiles/models:/home/valentin/PX4-Autopilot/Tools/simulation/gazebo-classic/sitl_gazebo-classic/models/catswarm_host:ro"
     )
@@ -197,7 +209,7 @@ if [ -f "$XAUTH_FILE" ]; then
 fi
 
 PX4_HOME_ENV=()
-if [[ "$WORLD" != "empty" ]]; then
+if [[ "$WORLD" != "empty" && "$WORLD" != "cylinders" ]]; then
     DOCKER_VOLUMES+=(--volume="${WORLD_FILE}:/home/valentin/PX4-Autopilot/Tools/simulation/gazebo-classic/sitl_gazebo-classic/worlds/${WORLD}.world:ro")
     PX4_HOME_ENV=(
         --env="PX4_HOME_LAT=${PX4_HOME_LAT}"
@@ -219,6 +231,8 @@ docker run -it --net=host \
            --env="CATSWARM_OF_MODE=${CATSWARM_OF_MODE:-mockup}" \
            --env="CATSWARM_VIO_CAM=${VIO_CAM}" \
            --env="CATSWARM_VIO_PITCH=${VIO_PITCH}" \
+           --env="CATSWARM_WORLD=${WORLD}" \
+           --env="CATSWARM_CYLINDER_RADIUS=${CYLINDER_RADIUS}" \
            --env="GAZEBO_IP=127.0.0.1" \
            --env="GAZEBO_MASTER_URI=http://127.0.0.1:11345" \
            --env="XAUTHORITY=${XAUTH_FILE}" \
