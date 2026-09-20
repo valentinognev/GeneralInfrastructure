@@ -6,7 +6,7 @@ This project provides the general infrastructure for multi-drone Reinforcement L
 
 The system follows a modular architecture:
 
-1.  **Simulation Environment**: A Docker container (`px4-noetic-sim-ros`) running Gazebo Classic and PX4 SITL.
+1.  **Simulation Environment**: Docker images for PX4 SITL — Noetic/Focal (`px4-noetic-sim-ros`, Gazebo Classic) and Noble/24.04 (`px4-noble-sim-ros`, Gazebo Jetty + FlightGear 2024). Prefer `./runSimNoble.sh` for Gazebo Jetty; FlightGear Rascal via `./fixedwing/runSimFlightGearRascal.sh` (injectable `fixedwing/fg_spawn.env`) or `make px4_sitl_nolockstep flightgear_rascal` inside the Noble image (see `Dockerfiles/README.md`). Nested sim images live in `Dockerfiles/` (`PX4dockerfiles`).
 2.  **Communication Bridge**:
     - **MAVLink (UDP)**: Connects the PX4 SITL instances to the bridge.
     - **Bridges (C++)**: `mavlink_to_ZMQ` and `zmq_commands_mavlink` convert MAVLink messages to/from ZeroMQ.
@@ -14,11 +14,17 @@ The system follows a modular architecture:
 3.  **Control Stack (Python)**:
     - `system_manager.py` (assumed): Manages the main control loop.
     - `rl_policy.py`: Implements the RL inference using PyTorch.
+4.  **Companion Pi (real)**: `deploymentScript/startup_scripts/start_companion_drone_tmux.sh` + `install-companion-boot.sh`. After HA/SM/VIO start, pane stdout is `pipe-pane`d to `~/RL/logs/tmux/`; journald `Storage=persistent`. See `startup_scripts/README.md`.
 
 ## Key Files
 
 ### Simulation & Setup
-- **`runSimNoeticMulti.sh`**: The main entry point. Starts the Dockerized PX4/ROS simulation environment for multiple drones. It handles container management, X11 forwarding, and cleaning up processes.
+- **`fixedwing/runSimFlightGearRascal.sh`**: Noble + FlightGear Rascal plane. Mounts `fixedwing/fg_spawn.env` (`FG_ARGS_EX`) for in-air spawn (default 500 m / ~30 m/s) without rebuilding the image.
+- **`fixedwing/run_straight_flight.py`**: Starts the Rascal sim (unless `--no-sim`), arms if needed, switches OFFBOARD, streams body-forward velocity setpoints for straight flight.
+- **`runSimNoeticMulti.sh`**: The main entry point. Starts the Dockerized PX4/ROS simulation environment for multiple drones. It handles container management, X11 forwarding, and cleaning up processes. Mounts iris sensors inject (px4flow + lidar), iris OB-color inject, + `10015_gazebo-classic_iris.post` so SITL publishes `OPTICAL_FLOW` / `DISTANCE_SENSOR` (matches cage rangefinder). `--world NAME` (default `empty`) mounts host `Dockerfiles/models` at `.../models/catswarm_host` (does not overlay PX4 `iris`); non-empty worlds also mount `NAME.world` and set `PX4_HOME_*` from `origin.json`. `--world cylinders` uses PX4 empty.world + four visual-only cylinders (0.50 m diameter, 10 cm tall); `--cylinder-radius` (default 10). JPEG HTTP preview on `5700+(id-1)`.
+- **`Dockerfiles/scripts/generate_real_area.py`**: Host-only generator (`--lat --lon --radius-m --out`) for Gazebo Classic ortho + heightmap + OSM solids. Run from CatSwarm root; see `Dockerfiles/README.md`. GUI does not call it.
+- **`multidrone/inject_iris_sensors.py`**: Injects nested `model://px4flow` + `model://lidar` into generated multi-SITL iris SDF before spawn. (`inject_iris_lidar.py` is a thin compat wrapper.)
+- **`multidrone/inject_iris_colors.py`**: Recolors iris mesh visuals at spawn to Observation Board `droneColors.ts` palette (`iris_N` → OB id `N`).
 - **`multidrone/run_multidrone_bridges.sh`**: Sets up the communication layer. It creates a tmux session with pairs of bridge processes (`mavlink_to_ZMQ` and `zmq_commands_mavlink`) for each drone defined in the positions file.
 - **`multidrone/positions.txt`**: Configuration file defining the initial spawn positions (x, y, z, yaw) for the drones.
 - **`hardware_adapter.sh`**: Legacy/Single-drone script to start the hardware adapter bridges.
@@ -38,8 +44,10 @@ The system follows a modular architecture:
 1.  **Start the Simulation**:
     ```bash
     ./runSimNoeticMulti.sh --num 3
+    ./runSimNoeticMulti.sh --num 3 --world teradyon
+    ./runSimNoeticMulti.sh --num 3 --world cylinders --cylinder-radius 10
     ```
-    (Adjust `--num` for the number of drones).
+    (Adjust `--num` for the number of drones. `--world` default is PX4 `empty`; generate host maps first. `cylinders` is empty.world + four visual markers, 10 cm tall.)
 
 2.  **Start Communication Bridges**:
     ```bash

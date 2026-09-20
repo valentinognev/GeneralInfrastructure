@@ -10,6 +10,10 @@ function cleanup() {
 	pkill -x px4
 	pkill gzclient
 	pkill gzserver
+	pkill -f vio_cam_tcp.py || true
+	if [ "${ROSCORE_OWNED:-0}" = "1" ]; then
+		pkill -x roscore || true
+	fi
 }
 
 function spawn_model() {
@@ -35,8 +39,6 @@ function spawn_model() {
 	[ ! -d "$working_dir" ] && mkdir -p "$working_dir"
 
 	pushd "$working_dir" &>/dev/null
-	echo "starting instance $N in $(pwd)"
-	$build_path/bin/px4 -i $N -d "$build_path/etc" >out.log 2>err.log &
 
 	set --
 	set -- ${@} ${src_path}/Tools/simulation/gazebo-classic/sitl_gazebo-classic/scripts/jinja_gen.py
@@ -52,9 +54,38 @@ function spawn_model() {
 
 	python3 ${@}
 
+	# CatSwarm: optical flow + rangefinder → OPTICAL_FLOW / DISTANCE_SENSOR.
+	# CATSWARM_OF_MODE=mockup (default) uses the non-rendering flow plugin so OF also
+	# streams headless; =camera restores the px4flow camera path (needs GL).
+	if [ "$MODEL" = "iris" ]; then
+		INJECT_SENSORS="${INJECT_IRIS_SENSORS:-/home/valentin/PX4-Autopilot/Tools/simulation/inject_iris_sensors.py}"
+		if [ -f "$INJECT_SENSORS" ]; then
+			python3 "$INJECT_SENSORS" /tmp/${MODEL}_${N}.sdf
+		else
+			echo "WARNING: $INJECT_SENSORS missing — iris spawned without OF/rangefinder"
+		fi
+		INJECT_COLORS="${INJECT_IRIS_COLORS:-/home/valentin/PX4-Autopilot/Tools/simulation/inject_iris_colors.py}"
+		if [ -f "$INJECT_COLORS" ]; then
+			python3 "$INJECT_COLORS" /tmp/${MODEL}_${N}.sdf ${N} || exit 1
+		else
+			echo "WARNING: $INJECT_COLORS missing — iris spawned with stock Gazebo colors"
+		fi
+	fi
+
 	echo "Spawning ${MODEL}_${N} at ${X} ${Y} ${Z}"
 
+	# CatSwarm: spawn the model (and its sensor/flow plugins) in Gazebo
+	# *before* starting bin/px4. PX4's Sensors::init() calls
+	# InitializeVehicleOpticalFlow() exactly once at boot and only wires up the
+	# OPTICAL_FLOW_RAD mavlink stream if sensor_optical_flow is already
+	# advertised at that instant. Starting px4 first (old order) means the
+	# late-arriving HIL_OPTICAL_FLOW from the just-spawned px4flow model is
+	# always missed — OPTICAL_FLOW_RAD then never streams for the rest of the
+	# session, independent of SDF/.post correctness.
 	gz model --spawn-file=/tmp/${MODEL}_${N}.sdf --model-name=${MODEL}_${N} -x ${X} -y ${Y} -z ${Z}
+
+	echo "starting instance $N in $(pwd)"
+	$build_path/bin/px4 -i $N -d "$build_path/etc" >out.log 2>err.log &
 
 	popd &>/dev/null
 
@@ -85,6 +116,10 @@ done
 
 num_vehicles=${NUM_VEHICLES:=3}
 world=${WORLD:=empty}
+gz_world="$world"
+if [ "$world" = "cylinders" ]; then
+	gz_world="empty"
+fi
 target=${TARGET:=px4_sitl_default}
 vehicle_model=${VEHICLE_MODEL:="iris"}
 export PX4_SIM_MODEL=gazebo-classic_${vehicle_model}
@@ -113,15 +148,35 @@ sleep 1
 
 source ${src_path}/Tools/simulation/gazebo-classic/setup_gazebo.bash ${src_path} ${src_path}/build/${target}
 
-# To use gazebo_ros ROS2 plugins
+export GAZEBO_MODEL_PATH="${GAZEBO_MODEL_PATH}:/home/valentin/PX4-Autopilot/Tools/simulation/gazebo-classic/sitl_gazebo-classic/models/catswarm_host"
+
+# ROS2: gazebo_ros init/factory. ROS1 (Noetic): API plugin so model camera
+# plugins can advertise. Start roscore only when the master is down.
+ROSCORE_OWNED=0
 if [[ -n "$ROS_VERSION" ]] && [ "$ROS_VERSION" == "2" ]; then
 	ros_args="-s libgazebo_ros_init.so -s libgazebo_ros_factory.so"
 else
-	ros_args=""
+	ros_args="-s libgazebo_ros_api_plugin.so"
+	if command -v roscore >/dev/null 2>&1 && ! rosnode list >/dev/null 2>&1; then
+		echo "Starting roscore"
+		roscore &
+		ROSCORE_OWNED=1
+		_i=0
+		while [ "$_i" -lt 50 ]; do
+			rosnode list >/dev/null 2>&1 && break
+			sleep 0.1
+			_i=$((_i + 1))
+		done
+	fi
 fi
 
 echo "Starting gazebo"
-gzserver ${src_path}/Tools/simulation/gazebo-classic/sitl_gazebo-classic/worlds/${world}.world --verbose $ros_args &
+# libgazebo_ros_camera.so dlopens libCameraPlugin.so from the Gazebo distro dir.
+GAZEBO11_PLUGINS="/usr/lib/x86_64-linux-gnu/gazebo-11/plugins"
+if [ -d "${GAZEBO11_PLUGINS}" ]; then
+	export LD_LIBRARY_PATH="${GAZEBO11_PLUGINS}${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+fi
+gzserver ${src_path}/Tools/simulation/gazebo-classic/sitl_gazebo-classic/worlds/${gz_world}.world --verbose $ros_args &
 sleep 5
 
 # Read positions from file if provided
@@ -204,6 +259,27 @@ else
 
 fi
 trap "cleanup" SIGINT SIGTERM EXIT
+
+if [ "${CATSWARM_WORLD:-$world}" = "cylinders" ]; then
+	SPAWN_CYL="${SPAWN_CYLINDERS:-$SCRIPT_DIR/spawn_cylinders.py}"
+	if [ -f "$SPAWN_CYL" ]; then
+		python3 "$SPAWN_CYL" \
+			--positions "${POSITIONS_FILE}" \
+			--radius "${CATSWARM_CYLINDER_RADIUS:-10}"
+	else
+		echo "WARNING: $SPAWN_CYL missing — Cylinders world has no markers"
+	fi
+fi
+
+VIO_CAM_TCP="${VIO_CAM_TCP:-/home/valentin/PX4-Autopilot/Tools/simulation/vio_cam_tcp.py}"
+if [ "${CATSWARM_VIO_CAM:-1}" != "0" ] && [ -f "$VIO_CAM_TCP" ]; then
+	echo "Starting vio_cam_tcp for ${n} drones"
+	python3 "$VIO_CAM_TCP" --num "${n}" &
+elif [ "${CATSWARM_VIO_CAM:-1}" = "0" ]; then
+	echo "CATSWARM_VIO_CAM=0 — skipping vio_cam_tcp"
+else
+	echo "WARNING: $VIO_CAM_TCP missing — no SVOF camera TCP"
+fi
 
 echo "Starting gazebo client"
 gzclient
