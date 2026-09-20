@@ -41,6 +41,8 @@ source "${SCRIPT_DIR}/util/companion_rtk_connection.sh"
 source "${SCRIPT_DIR}/util/companion_gps_module.sh"
 # shellcheck disable=SC1091
 source "${SCRIPT_DIR}/util/companion_vio.sh"
+# shellcheck disable=SC1091
+source "${SCRIPT_DIR}/util/companion_tmux.sh"
 
 _activate_companion_conda() {
     if [ -n "${COMPANION_RUN_IN_RL:-}" ] && [ -x "${COMPANION_RUN_IN_RL}" ] && [ -x "${PYTHON:-}" ]; then
@@ -122,6 +124,8 @@ UART_DEPLOY_DOC="${SCRIPT_DIR}/RPi_second_UART_GPIO4_GPIO5_deployment.md"
 GPS_GUIDE="${CATSWARM_ROOT}/GPS_RTK/docs/guide-raspberry-pi-rover-px4.md"
 
 TMUX_SESSION="${CATSWARM_TMUX_SESSION:-catswarm_sim}"
+# systemd oneshot has no XDG_RUNTIME_DIR; pin /tmp so SSH tmux finds this session.
+export TMUX_TMPDIR="${TMUX_TMPDIR:-/tmp}"
 COMPANION_RTK_ZMQ_BIND="${COMPANION_RTK_ZMQ_BIND:-tcp://127.0.0.1:5562}"
 COMPANION_BASE_HOST="${COMPANION_BASE_HOST:-192.168.0.43}"
 COMPANION_BASE_PORT_NUM="${COMPANION_BASE_PORT_NUM:-5560}"
@@ -637,6 +641,8 @@ fi
 if ! companion_vio_start_in_tmux "${TMUX_SESSION}" "${DRONE_ID}" "${COMPANION_PYTHON:-${PYTHON}}" "${SCHURVINS_ROOT}"; then
     echo "WARNING: VIO window failed to start — continuing." >&2
 fi
+
+companion_tmux_pipe_session "${TMUX_SESSION}"
 
 echo ""
 echo "Done."

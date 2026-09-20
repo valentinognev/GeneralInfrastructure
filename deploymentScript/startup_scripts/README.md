@@ -23,6 +23,7 @@ Scripts in this folder start the **CatSwarm companion stack** on a **Raspberry P
 | **`sniff_companion_gps_profile.py`** | Probe F9P ACM then LC29H EA/DA (used by flush + boot fallback) |
 | **`flush_companion_gps_from_hw.sh`** | Sniff hardware and rewrite `~/.config/companion-gps` |
 | **`qgc_mavlink_streams.py`** | Boot helper: `SET_MESSAGE_INTERVAL` for `HIGHRES_IMU` + `OPTICAL_FLOW_RAD` on QGC TCP `:5760` |
+| **`companion_tmux.sh`** | Bind SSH tmux to the systemd session; `companion_tmux_pipe_session` `pipe-pane -o`s every pane to `~/RL/logs/tmux/` |
 
 ## Unified serial parameters (`util/gnss_serial_args.sh`)
 
@@ -153,6 +154,8 @@ Useful environment:
 | **`CATSWARM_TMUX_SESSION`** | `catswarm_sim` | tmux session name |
 
 Attach: **`tmux attach -t catswarm_sim`**
+
+After HA/SM/VIO windows exist, **`companion_tmux_pipe_session`** appends pane stdout to `~/RL/logs/tmux/<UTC>_<session_window_pane>.log` (survives reboot; tmux history does not). `install-companion-boot.sh` also writes journald `Storage=persistent`. Re-run that install (or copy the drop-in) on existing Pis.
 
 Stop: **`./start_companion_drone_tmux.sh --kill`**
 

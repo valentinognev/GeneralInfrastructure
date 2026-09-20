@@ -106,6 +106,7 @@ RemainAfterExit=yes
 User=pi
 Group=pi
 Environment=HOME=/home/pi
+Environment=TMUX_TMPDIR=/tmp
 EnvironmentFile=-/etc/default/companion-drone
 ExecStartPre=/bin/sleep 5
 ExecStart=/usr/local/bin/run-companion-drone.sh
@@ -116,6 +117,13 @@ SyslogIdentifier=companion-drone
 [Install]
 WantedBy=multi-user.target
 EOF
+
+mkdir -p /etc/systemd/journald.d /var/log/journal
+cat > /etc/systemd/journald.d/companion-persistent.conf << EOF
+[Journal]
+Storage=persistent
+EOF
+systemctl restart systemd-journald || true
 
 systemctl daemon-reload
 systemctl enable companion-drone.service

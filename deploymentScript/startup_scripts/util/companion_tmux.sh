@@ -21,3 +21,18 @@ companion_tmux_bind_session() {
   fi
   return 1
 }
+
+# Capture every pane's stdout to rotating files under ~/RL/logs/tmux (survives reboot).
+companion_tmux_pipe_session() {
+  local session="$1"
+  local log_dir="${2:-${HOME}/RL/logs/tmux}"
+  mkdir -p "$log_dir"
+  local stamp; stamp="$(date -u +%Y%m%d_%H%M%SZ)"
+  companion_tmux_bind_session "$session" || true
+  local target
+  while IFS= read -r target; do
+    [ -z "$target" ] && continue
+    local safe; safe="$(printf '%s' "$target" | tr ':. ' '___')"
+    tmux pipe-pane -o -t "$target" "cat >> \"${log_dir}/${stamp}_${safe}.log\""
+  done < <(tmux list-panes -s -t "$session" -F '#{session_name}:#{window_index}.#{pane_index}' 2>/dev/null)
+}

@@ -2,6 +2,21 @@
 
 This file documents the development progress and changes made to the `CatSwarm/general_infrastructure` project by the AI agent.
 
+## [2026-09-20] Companion tmux pipe-pane + persistent journald
+- After HA/SM/VIO windows exist, `companion_tmux_pipe_session` `pipe-pane -o`s every pane to `~/RL/logs/tmux/<UTC>_<session_window_pane>.log`.
+- `install-companion-boot.sh` writes `/etc/systemd/journald.d/companion-persistent.conf` (`Storage=persistent`) and restarts journald before enabling `companion-drone.service`.
+- Tests: `util/tests/test_companion_tmux.py`. Re-run install-companion-boot on the Pi (or copy the drop-in) so journal survives reboot.
+
+## [2026-09-19] Apply RTK/COMM COMM_SIM pub from MultiInput
+- `switch_rtk_WIFI_RF.sh` / `switch_comm_WIFI_RF.sh` used `COMM_PUB_PORT=7800+id` after MultiInput moved to `zmqCommSimOutPort` 19901+. `ZMQ_to_comm` republished air-RX peers on 7801; `comm_to_ZMQ` SUBed 19901 → OB GS dots green, interdrone red, PAIRING stuck.
+- `companion_comm.z2c_comm_pub_port` reads MultiInput (fallback 7800+id). Restart companion or at least `comm_to_ZMQ` + `ZMQ_to_comm`. Tests: `util/tests/test_companion_comm.py`. Pair HA **v1.34.2**.
+
+## [2026-09-18] Cylinder height 10 cm
+- `CYLINDER_HEIGHT_M` is 0.10 (was 0.05). SDF length and link pose (`height/2`) still sit the visual on world z=0.
+
+## [2026-09-18] Cylinder height 5 cm
+- `CYLINDER_HEIGHT_M` is 0.05 (was 1.0). SDF length and link pose (`height/2`) follow so the visual still sits on world z=0.
+
 ## [2026-09-18] Cylinder spawn z=0 (base on ground)
 - `place_cylinders` spawn `-z 0` (was height/2). SDF link pose stays `0 0 0.5` so the 1 m visual sits on world z=0, not floating.
 
