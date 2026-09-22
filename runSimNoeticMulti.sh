@@ -65,9 +65,12 @@ while [[ $# -gt 0 ]]; do
             echo "  CATSWARM_GZCLIENT        Set to 0 to skip gzclient (default: 1)."
             echo "                           GUI Start Sim always sets this to 1 so the 3D"
             echo "                           window and the camera feed run together."
-            echo "  CATSWARM_WORLD           Gazebo world name (default: hil_city if fetched,"
-            echo "                           else empty). Run multidrone/fetch_hil_city.sh once."
+            echo "  CATSWARM_WORLD           Gazebo world: simple_hil | hil_city (default: hil_city)."
+            echo "                           simple_hil = 25% crop of hil_city downtown"
+            echo "                           (no city_terrain). 250 Hz, RTF~1.00."
+            echo "                           hil_city is the full OSRF mesh (fetch_hil_city.sh)."
             echo "  CATSWARM_SIM_GPU         1 = NVIDIA GL in Docker (--gpus all + PRIME offload)."
+            echo "                           Explicit 1 aborts if nvidia-smi fails (no silent llvmpipe)."
             echo "                           0 = CPU/llvmpipe (rollback). Unset = auto if nvidia-smi."
             echo "  CATSWARM_GST_BITRATE     GstCameraPlugin 1080p HEVC kbps (default: 4000)."
             echo "  CATSWARM_GST_SPEED_PRESET x265enc speed-preset (default: 1 = ultrafast)."
@@ -194,13 +197,23 @@ fi
 
 # CatSwarm HIL: camera-enabled iris template, local props, OSRF city assets.
 CITY_ASSETS="${SCRIPT_DIR}/multidrone/city_assets"
-if [ "${CATSWARM_WORLD:-hil_city}" = "hil_city" ] && [ ! -f "${CITY_ASSETS}/worlds/hil_city.world" ]; then
-    echo "City world missing; fetching OSRF citysim assets (once)…"
+HIL_WORLDS="${SCRIPT_DIR}/multidrone/worlds"
+WORLD_NAME="${CATSWARM_WORLD:-hil_city}"
+NEED_CITY_ASSETS=0
+if [ "${WORLD_NAME}" = "hil_city" ] && [ ! -f "${CITY_ASSETS}/worlds/hil_city.world" ]; then
+    NEED_CITY_ASSETS=1
+fi
+if [ "${WORLD_NAME}" = "simple_hil" ] && [ ! -d "${CITY_ASSETS}/models/house_1" ]; then
+    NEED_CITY_ASSETS=1
+fi
+if [ "${NEED_CITY_ASSETS}" = "1" ]; then
+    echo "City models missing; fetching OSRF citysim assets (once)…"
     "${SCRIPT_DIR}/multidrone/fetch_hil_city.sh"
 fi
 DOCKER_VOLUMES+=(
     --volume="${SCRIPT_DIR}/multidrone/iris.sdf.jinja:/home/valentin/PX4-Autopilot/Tools/simulation/gazebo-classic/sitl_gazebo-classic/models/iris/iris.sdf.jinja:ro"
     --volume="${SCRIPT_DIR}/multidrone/models:/home/valentin/catswarm_models:ro"
+    --volume="${HIL_WORLDS}:/home/valentin/catswarm_worlds:ro"
 )
 # Overlay patched GstCameraPlugin (1080p HEVC / ~4000 kbps) when built locally.
 GST_CAMERA_PLUGIN="${SCRIPT_DIR}/../vision_hil/host/gst_camera_plugin/libgazebo_gst_camera_plugin.so"
@@ -261,19 +274,36 @@ fi
 
 DOCKER_GPU=()
 SIM_GPU=0
+GPU_REQUESTED=0
 case "${CATSWARM_SIM_GPU:-auto}" in
     0|false|no|off) SIM_GPU=0 ;;
+    1|true|yes|on)
+        GPU_REQUESTED=1
+        SIM_GPU=1
+        ;;
     *)
         if command -v nvidia-smi >/dev/null 2>&1 && nvidia-smi -L >/dev/null 2>&1; then
             SIM_GPU=1
         fi
         ;;
 esac
-if [ "${CATSWARM_SIM_GPU:-}" = "0" ]; then
-    SIM_GPU=0
-fi
 if [ "${LIBGL_ALWAYS_SOFTWARE:-}" = "1" ]; then
     SIM_GPU=0
+    GPU_REQUESTED=0
+fi
+_nvidia_smi_ok() {
+    command -v nvidia-smi >/dev/null 2>&1 && nvidia-smi -L >/dev/null 2>&1
+}
+# GUI Start Sim always sets CATSWARM_SIM_GPU=1. If NVML is dead (driver /
+# library mismatch after a DKMS rebuild), --gpus all cannot work. Do not
+# silently start gzclient on llvmpipe: RTF collapses and it looks like
+# "Gazebo is not on the NVIDIA GPU".
+if [ "${GPU_REQUESTED}" = "1" ] && ! _nvidia_smi_ok; then
+    echo "ERROR: CATSWARM_SIM_GPU=1 but nvidia-smi cannot talk to the driver." >&2
+    echo "  Gazebo would fall back to CPU/llvmpipe and run ~10x slow." >&2
+    echo "  Reboot to finish the NVIDIA DKMS reload, then Start Sim again." >&2
+    echo "  Rollback only if you mean it: CATSWARM_SIM_GPU=0" >&2
+    exit 1
 fi
 if [ "${SIM_GPU}" = "1" ]; then
     DOCKER_GPU=(--gpus all)
@@ -306,6 +336,8 @@ fi
 # empty-world 3 m parking line. Must run after CATSWARM_WORLD / POSITIONS_FILE.
 # NUM_DRONES lets it record the same no-XY default the container script uses for
 # drones past the end of the positions file.
+# simple_hil writes that parking line; only hil_city writes the north-field pad.
+echo "Gazebo world: ${CATSWARM_WORLD:-hil_city}"
 NUM_DRONES="${NUM_DRONES}" write_sitl_spawn_map
 
 docker run "${DOCKER_TTY[@]}" --net=host \
