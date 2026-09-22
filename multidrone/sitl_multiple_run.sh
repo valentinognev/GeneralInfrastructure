@@ -12,6 +12,30 @@ function cleanup() {
 	pkill gzserver
 }
 
+# gz model --spawn-file -x -y can return with the model still at the origin
+# when a sensor plugin (iris_1 camera) loads during insert. XY more than 2 m
+# off the request is that drop; set the pose again. Z is the spawn height.
+function settle_spawn_pose() {
+	local name="$1" x="$2" y="$3" z="$4"
+	local line px py far
+	sleep 0.4
+	line=$(timeout 3 gz model -m "${name}" -p 2>/dev/null | head -n 1 || true)
+	line=${line//[()]/}
+	read -r px py _ <<< "${line}"
+	if [ -z "${px}" ] || [ -z "${py}" ]; then
+		echo "WARN: could not read pose of ${name}"
+		return 0
+	fi
+	far=$(awk -v px="${px}" -v py="${py}" -v x="${x}" -v y="${y}" 'BEGIN {
+		dx = (px+0) - (x+0); dy = (py+0) - (y+0);
+		if ((dx*dx + dy*dy) > 4) print "yes"; else print "no"
+	}')
+	if [ "${far}" = "yes" ]; then
+		echo "WARN: ${name} at ${px} ${py}, requested ${x} ${y}; setting pose"
+		gz model -m "${name}" -x "${x}" -y "${y}" -z "${z}" || true
+	fi
+}
+
 function spawn_model() {
 	MODEL=$1
 	N=$2 #Instance Number
@@ -24,6 +48,7 @@ function spawn_model() {
 			X=-15
 			Y=$(awk -v n="$N" 'BEGIN { printf "%.1f", 108 + 4*(n-1) }')
 		else
+			# simple_hil and empty: parking line. Do not reuse the city pad.
 			X=0.0
 			Y=$((3*${N}))
 		fi
@@ -32,7 +57,7 @@ function spawn_model() {
 		Y=${Y:=$((3*${N}))}
 	fi
 	if [ -z "${Z}" ]; then
-		# city_terrain_1 is a 500×500 plane posed at z=5.01; empty-world ground is z=0.
+		# city_terrain_1 is a 500×500 plane posed at z=5.01; empty/simple_hil ground is z=0.
 		if [ "${world}" = "hil_city" ]; then
 			Z=5.35
 		else
@@ -74,6 +99,9 @@ function spawn_model() {
 	echo "Spawning ${MODEL}_${N} at ${X} ${Y} ${Z}"
 
 	gz model --spawn-file=/tmp/${MODEL}_${N}.sdf --model-name=${MODEL}_${N} -x ${X} -y ${Y} -z ${Z}
+	# iris_1's camera plugin loads inside that spawn. Gazebo can ignore
+	# -x/-y and leave the model at the origin. Put it back on the pad.
+	settle_spawn_pose "${MODEL}_${N}" "${X}" "${Y}" "${Z}"
 
 	$build_path/bin/px4 -i $N -d "$build_path/etc" >out.log 2>err.log &
 
@@ -143,6 +171,7 @@ source ${src_path}/Tools/simulation/gazebo-classic/setup_gazebo.bash ${src_path}
 
 CATSWARM_MODELS="/home/valentin/catswarm_models"
 CATSWARM_CITY="/home/valentin/catswarm_city"
+CATSWARM_WORLDS="${CATSWARM_WORLDS:-/home/valentin/catswarm_worlds}"
 if [ -d "${CATSWARM_CITY}/models" ]; then
 	export GAZEBO_MODEL_PATH="${CATSWARM_CITY}/models:${GAZEBO_MODEL_PATH}"
 fi
@@ -183,26 +212,52 @@ else
 	ros_args=""
 fi
 
+# Camera-tab PC mode leaves /tmp/catswarm_hil/mode as "pc". iris_1 is the
+# only model with the camera plugin; that path runs while the model is
+# inserted and the spawn pose can be dropped at the origin. Hailo is the
+# default until Start stream switches the file.
+mkdir -p /tmp/catswarm_hil
+printf '%s\n' hailo > /tmp/catswarm_hil/mode
+echo "HIL video mode: hailo (before gzserver)"
+
 echo "Starting gazebo world=${world}"
 CITY_WORLD="${CATSWARM_CITY}/worlds/${world}.world"
 PX4_WORLD="${src_path}/Tools/simulation/gazebo-classic/sitl_gazebo-classic/worlds/${world}.world"
-if [ -f "${CITY_WORLD}" ]; then
+HIL_WORLD="${CATSWARM_WORLDS}/${world}.world"
+if [ -f "${HIL_WORLD}" ]; then
+	WORLD_FILE="${HIL_WORLD}"
+elif [ -f "${CITY_WORLD}" ]; then
 	WORLD_FILE="${CITY_WORLD}"
 else
 	WORLD_FILE="${PX4_WORLD}"
 fi
-gzserver ${WORLD_FILE} --verbose $ros_args </dev/null &
+gzserver ${WORLD_FILE} --verbose $ros_args </dev/null >/tmp/gzserver.log 2>&1 &
+GZSERVER_PID=$!
+echo "gzserver pid=${GZSERVER_PID} log=/tmp/gzserver.log"
 # Gazebo 11 has no `gz model --list`. Wait until a world model answers.
+# Do not probe during SDF parse: `gz model -i` then crashes gzserver
+# (Header is empty / vector::_M_default_append).
 ready_model="ground_plane"
 if [ "${world}" = "hil_city" ]; then
 	ready_model="city_terrain_1"
+	echo "Waiting 25s for hil_city SDF before gz model probe"
+	sleep 25
+elif [ "${world}" = "simple_hil" ]; then
+	echo "Waiting 8s for simple_hil downtown crop"
+	sleep 8
+else
+	sleep 5
 fi
 for i in $(seq 1 180); do
-	if gz model -m "${ready_model}" -i >/dev/null 2>&1; then
+	if ! kill -0 "$GZSERVER_PID" 2>/dev/null; then
+		echo "ERROR: gzserver exited before world ready (pid ${GZSERVER_PID})"
+		exit 1
+	fi
+	if timeout 3 gz model -m "${ready_model}" -i >/dev/null 2>&1; then
 		echo "gzserver ready after ${i}s (model ${ready_model})"
 		break
 	fi
-	sleep 1
+	sleep 2
 	if [ $i -eq 180 ]; then
 		echo "WARN: gzserver did not publish ${ready_model} after 180s"
 	fi
@@ -210,6 +265,7 @@ done
 
 # Extra 3D people near the iris line. hil_city already has buildings/actors/Prius;
 # we still add a few props in front of the default spawn for the Hailo camera.
+# simple_hil keeps moving targets as zero-physics <actor> nodes in the world file.
 spawn_static() {
 	local sdf="$1" name="$2" x="$3" y="$4" z="$5" yaw="${6:-0}"
 	if [ ! -f "${sdf}" ]; then
@@ -220,7 +276,9 @@ spawn_static() {
 	gz model --spawn-file="${sdf}" --model-name="${name}" -x "${x}" -y "${y}" -z "${z}" -Y "${yaw}" || true
 }
 
-if [ "${world}" = "hil_city" ]; then
+if [ "${world}" = "simple_hil" ]; then
+	echo "simple_hil: skipping collision props (walker/vehicle are world actors)"
+elif [ "${world}" = "hil_city" ]; then
 	PERSON_SDF="${CATSWARM_CITY}/models/person_standing/model.sdf"
 	WALK_SDF="${CATSWARM_CITY}/models/person_walking/model.sdf"
 	# Props a few metres east of the north-field spawn (iris camera looks +X).
@@ -273,6 +331,28 @@ if [ -n "${POSITIONS_FILE}" ]; then
 		line_num=$((line_num + 1))
 	done < "${POSITIONS_FILE}"
 	echo "Loaded ${#positions_x[@]} positions from file"
+	# simple_hil is the downtown crop (roads end near y=52). The GUI still
+	# defaults to the hil_city north field (y≈108). Those models sit on empty
+	# ground ~100 m north of the camera at (-18, 8) and look unspawned.
+	# hil_city keeps that pad. This is the Gazebo world name, not a /tmp file.
+	if [ "${world}" = "simple_hil" ] && [ ${#positions_y[@]} -gt 0 ]; then
+		north_field=0
+		for y in "${positions_y[@]}"; do
+			if awk -v y="${y}" 'BEGIN { exit !((y+0) > 60) }'; then
+				north_field=1
+				break
+			fi
+		done
+		if [ "${north_field}" = "1" ]; then
+			echo "simple_hil: north-field XY is outside the downtown crop; using parking line x=0 y=3*n"
+			for i in "${!positions_x[@]}"; do
+				n=$((i + 1))
+				positions_x[$i]=0.0
+				positions_y[$i]=$(awk -v n="${n}" 'BEGIN { printf "%.3f", 3*n }')
+				positions_z[$i]=0.83
+			done
+		fi
+	fi
 	# Parking-lot / origin XY (0,0 / 0,3 / …) is inside shops. Nudge onto the north field.
 	if [ "${world}" = "hil_city" ] && [ ${#positions_x[@]} -gt 0 ]; then
 		first_x="${positions_x[0]}"
@@ -347,7 +427,13 @@ if [ "${CATSWARM_GZCLIENT:-1}" = "0" ]; then
 	echo "Skipping gzclient (CATSWARM_GZCLIENT=0)"
 	wait
 else
-	echo "Starting gazebo client"
-	gzclient &
+	echo "Starting gazebo client DISPLAY=${DISPLAY:-unset}"
+	gzclient --verbose > /tmp/catswarm_gzclient.log 2>&1 &
+	GZCLIENT_PID=$!
+	sleep 2
+	if ! kill -0 "$GZCLIENT_PID" 2>/dev/null; then
+		echo "ERROR: gzclient exited immediately (DISPLAY=${DISPLAY:-unset}). Log:"
+		cat /tmp/catswarm_gzclient.log 2>/dev/null || true
+	fi
 	wait
 fi
