@@ -2,6 +2,13 @@
 
 This file documents the development progress and changes made to the `CatSwarm/general_infrastructure` project by the AI agent.
 
+## 0.1.1 - README matches the current launchers
+- Root README now describes Noetic multi-iris inject, companion orchestration, and the sibling processes this tree starts. Dropped the in-repo control stack and the removed `fixedwing/` host runner.
+
+## [2026-09-26] Sim mockup optical flow uses body-frame rotation
+- `10015_gazebo-classic_iris.post` `SENS_FLOW_ROT` 6 → 0. The mockup plugin publishes body-frame flow; yaw 270 is the px4flow camera and the real boards (`droneParams` stay 6).
+- With 6, GPS-off ONAIR fused a rotated velocity, the hold spiraled, then PX4 blind-landed. Restart SITL so the boot `param set` applies.
+
 ## [2026-09-20] Companion tmux pipe-pane + persistent journald
 - After HA/SM/VIO windows exist, `companion_tmux_pipe_session` `pipe-pane -o`s every pane to `~/RL/logs/tmux/<UTC>_<session_window_pane>.log`.
 - `install-companion-boot.sh` writes `/etc/systemd/journald.d/companion-persistent.conf` (`Storage=persistent`) and restarts journald before enabling `companion-drone.service`.

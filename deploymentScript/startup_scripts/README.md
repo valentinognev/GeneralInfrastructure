@@ -11,6 +11,7 @@ Scripts in this folder start the **CatSwarm companion stack** on a **Raspberry P
 | **`startInitRoverPI.sh`** | One-time LC29H rover init (DA UART or EA USB via flags) |
 | **`switch_EAUSB_DAUART.sh`** | Restart GPS window; switch EA ↔ DA module |
 | **`switch_rtk_WIFI_RF.sh`** | Restart RTK bridge + GPS; switch WiFi ↔ serial RF |
+| **`switch_comm_WIFI_RF.sh`** | Restart `ZMQ_to_comm`; switch COMM fabric WiFi ↔ RF (`~/.config/companion-comm`) |
 | **`restart_gs_wifi_rtk.sh`** | Ground-station PC: restart WiFi RTK publisher |
 
 ### `util/` shared libraries
@@ -54,10 +55,10 @@ One-time LC29H setup: RTK rover mode, GGA + **10 Hz** NMEA, optional RTK verify 
 ~/RL/startup_scripts/startInitRoverPI.sh --verify-rtk --rtk-zmq-url=tcp://127.0.0.1:5562
 ```
 
-**DA on UART1** (explicit):
+**DA on UART4** (explicit; `/dev/ttyAMA0` is NMEA→PX4, not the rover):
 
 ```bash
-~/RL/startup_scripts/startInitRoverPI.sh --rover-port=/dev/ttyAMA0 --rover-baud=115200 --phase1
+~/RL/startup_scripts/startInitRoverPI.sh --rover-port=/dev/ttyAMA4 --rover-baud=115200 --phase1
 ```
 
 **EA on USB** (explicit baud):
@@ -89,6 +90,10 @@ Switch saved preferences without tearing down the full tmux session:
 # RTK path (WiFi vs serial RF)
 ~/RL/startup_scripts/switch_rtk_WIFI_RF.sh --wifi --base-host=192.168.0.43
 ~/RL/startup_scripts/switch_rtk_WIFI_RF.sh --serial
+
+# COMM fabric (RF serial vs WiFi ZMQ :18811 / :18812)
+~/RL/startup_scripts/switch_comm_WIFI_RF.sh --rf
+~/RL/startup_scripts/switch_comm_WIFI_RF.sh --wifi --gs-host=192.168.0.43
 ```
 
 ## `start_companion_drone_tmux.sh`

@@ -8,7 +8,6 @@ This directory contains a C++ implementation for loading and running RL policies
 - `main.cpp`: Program that loads a JSON policy and computes actions
 - `Makefile`: Build configuration
 - `generate_test_data.py`: Python script to generate test observations and actions for validation
-- `fix_checkpoint.py`: Utility script to fix PyTorch checkpoint formats (optional)
 
 ## Prerequisites
 
@@ -34,8 +33,7 @@ make clean
 First, convert your PyTorch checkpoint to JSON format:
 
 ```bash
-cd /home/valentin/RL/src
-python pth2json.py <path_to_checkpoint.pth> <output.json>
+python3 ../pth2json.py <path_to_checkpoint.pth> <output.json>
 ```
 
 ### Step 2: Generate Test Data (Optional, for validation)
