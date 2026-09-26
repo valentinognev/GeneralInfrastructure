@@ -31,8 +31,11 @@ param set SYS_HAS_GPS 1
 # PX4's own iris_opt_flow(_mockup) airframes set EKF2_GPS_CTRL 0 when OF is on.
 # OB GPS-quality NO FIX enables OF fusion via HA (gps_quality_override).
 # MINHGT 0.02 matches real air (~2 cm).
+# SENS_FLOW_ROT 0: default sim is the body-frame mockup plugin (stock 1017).
+# Yaw 270 (6) is the rendered px4flow camera and the real airframe; using it
+# on the mockup rotates flow into the EKF and the ONAIR hold spirals away.
 param set EKF2_OF_CTRL 0
-param set SENS_FLOW_ROT 6
+param set SENS_FLOW_ROT 0
 param set SENS_FLOW_MINHGT 0.02
 param set SENS_FLOW_MAXHGT 15
 param set SENS_FLOW_MAXR 2.5
