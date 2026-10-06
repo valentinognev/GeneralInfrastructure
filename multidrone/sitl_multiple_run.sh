@@ -47,8 +47,13 @@ function spawn_model() {
 	set -- ${@} --mavlink_tcp_port $((4560+${N}))
 	set -- ${@} --mavlink_udp_port $((14560+${N}))
 	set -- ${@} --mavlink_id $((1+${N}))
+	# PX4's own GStreamer stream. iris_1 Hailo RTP is hil_rtp_port 5730, not this port.
 	set -- ${@} --gst_udp_port $((5600+${N}))
 	set -- ${@} --video_uri $((5600+${N}))
+	if [ "$MODEL" = "iris" ] && [ "$N" = "1" ]; then
+		printf '%s\n' '{"hil_rtp_port": 5730}' > /tmp/catswarm_hil_rtp_iris1.json
+		set -- ${@} --override_parameters_json_path /tmp/catswarm_hil_rtp_iris1.json
+	fi
 	set -- ${@} --mavlink_cam_udp_port $((14530+${N}))
 	set -- ${@} --output-file /tmp/${MODEL}_${N}.sdf
 

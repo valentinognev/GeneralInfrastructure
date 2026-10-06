@@ -1,0 +1,23 @@
+#!/bin/bash
+# Copy to runSimNoeticMulti.local.sh (gitignored) on a workstation with NVIDIA + nvidia-container-toolkit.
+# cp runSimNoeticMulti.local.sh.example runSimNoeticMulti.local.sh
+#
+# Defines catswarm_sim_docker_gpu_hook, called by runSimNoeticMulti.sh before docker run.
+
+catswarm_sim_docker_gpu_hook() {
+    if ! command -v nvidia-smi >/dev/null 2>&1 || ! nvidia-smi -L >/dev/null 2>&1; then
+        echo "WARNING: runSimNoeticMulti.local.sh: nvidia-smi unavailable — skipping GPU docker args."
+        return 0
+    fi
+    echo "Using NVIDIA GPU for Gazebo OpenGL (local runSimNoeticMulti.local.sh)."
+    nvidia-smi -pm 1 >/dev/null 2>&1 || true
+    nvidia-settings -a "[gpu:0]/GPUPowerMizerMode=1" >/dev/null 2>&1 || true
+    DOCKER_GPU_ARGS=(--gpus all)
+    DOCKER_GPU_ENV=(
+        --env="NVIDIA_VISIBLE_DEVICES=all"
+        --env="NVIDIA_DRIVER_CAPABILITIES=graphics,utility,compute"
+        --env="__GLX_VENDOR_LIBRARY_NAME=nvidia"
+        --env="__NV_PRIME_RENDER_OFFLOAD=1"
+        --env="__VK_LAYER_NV_optimus=NVIDIA_only"
+    )
+}

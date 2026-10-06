@@ -203,6 +203,21 @@ else
     )
 fi
 
+# iris_1 hil_camera lives in this template. Drones 2+ do not get hil_rtp_port.
+DOCKER_VOLUMES+=(
+    --volume="${SCRIPT_DIR}/multidrone/iris.sdf.jinja:/home/valentin/PX4-Autopilot/Tools/simulation/gazebo-classic/sitl_gazebo-classic/models/iris/iris.sdf.jinja:ro"
+)
+GST_CAMERA_PLUGIN="${SCRIPT_DIR}/../vision_hil/host/gst_camera_plugin/libgazebo_gst_camera_plugin.so"
+if [ -f "${GST_CAMERA_PLUGIN}" ]; then
+    DOCKER_VOLUMES+=(
+        --volume="${GST_CAMERA_PLUGIN}:/home/valentin/PX4-Autopilot/build/px4_sitl_default/build_gazebo-classic/libgazebo_gst_camera_plugin.so:ro"
+    )
+    echo "GstCameraPlugin: bind-mount ${GST_CAMERA_PLUGIN}"
+else
+    echo "WARNING: ${GST_CAMERA_PLUGIN} is not built."
+    echo "  iris_1 will load the image plugin. Build vision_hil/host/gst_camera_plugin/build.sh for HEVC."
+fi
+
 # Add XAUTHORITY volume only if file exists
 if [ -f "$XAUTH_FILE" ]; then
     DOCKER_VOLUMES+=(--volume="${XAUTH_FILE}:${XAUTH_FILE}:ro")
@@ -218,6 +233,21 @@ if [[ "$WORLD" != "empty" && "$WORLD" != "cylinders" ]]; then
     )
 fi
 
+# Machine-local NVIDIA GL. Absent on machines without the gitignored hook,
+# so those keep CPU/llvmpipe. This PC's hook passes --gpus all and PRIME offload.
+DOCKER_GPU_ARGS=()
+DOCKER_GPU_ENV=()
+LOCAL_GPU_HOOK="${SCRIPT_DIR}/runSimNoeticMulti.local.sh"
+if [ -f "${LOCAL_GPU_HOOK}" ]; then
+    # shellcheck source=/dev/null
+    source "${LOCAL_GPU_HOOK}"
+    if declare -F catswarm_sim_docker_gpu_hook >/dev/null; then
+        catswarm_sim_docker_gpu_hook
+    fi
+else
+    echo "Gazebo GL: CPU/llvmpipe (no ${LOCAL_GPU_HOOK})"
+fi
+
 # Run docker container with the simulation command
 # Pin Gazebo transport to loopback. Without this, gzserver floods
 # "Exception sending a multicast message: Network is unreachable" on hosts
@@ -226,6 +256,8 @@ fi
 docker run -it --net=host \
            --cap-drop=all \
            --privileged \
+           "${DOCKER_GPU_ARGS[@]}" \
+           "${DOCKER_GPU_ENV[@]}" \
            --env="DISPLAY=$DISPLAY" \
            --env="QT_X11_NO_MITSHM=1" \
            --env="CATSWARM_OF_MODE=${CATSWARM_OF_MODE:-mockup}" \
