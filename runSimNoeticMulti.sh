@@ -207,7 +207,7 @@ fi
 DOCKER_VOLUMES+=(
     --volume="${SCRIPT_DIR}/multidrone/iris.sdf.jinja:/home/valentin/PX4-Autopilot/Tools/simulation/gazebo-classic/sitl_gazebo-classic/models/iris/iris.sdf.jinja:ro"
 )
-GST_CAMERA_PLUGIN="${SCRIPT_DIR}/../vision_hil/host/gst_camera_plugin/libgazebo_gst_camera_plugin.so"
+GST_CAMERA_PLUGIN="${SCRIPT_DIR}/../area_scan/vision_hil/host/gst_camera_plugin/libgazebo_gst_camera_plugin.so"
 if [ -f "${GST_CAMERA_PLUGIN}" ]; then
     DOCKER_VOLUMES+=(
         --volume="${GST_CAMERA_PLUGIN}:/home/valentin/PX4-Autopilot/build/px4_sitl_default/build_gazebo-classic/libgazebo_gst_camera_plugin.so:ro"
@@ -215,7 +215,7 @@ if [ -f "${GST_CAMERA_PLUGIN}" ]; then
     echo "GstCameraPlugin: bind-mount ${GST_CAMERA_PLUGIN}"
 else
     echo "WARNING: ${GST_CAMERA_PLUGIN} is not built."
-    echo "  iris_1 will load the image plugin. Build vision_hil/host/gst_camera_plugin/build.sh for HEVC."
+    echo "  iris_1 will load the image plugin. Build area_scan/vision_hil/host/gst_camera_plugin/build.sh for HEVC."
 fi
 
 # Add XAUTHORITY volume only if file exists
